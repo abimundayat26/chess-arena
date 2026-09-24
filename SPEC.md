@@ -1,6 +1,18 @@
 # Multi-Model Chess Arena
 
-## Current milestone — Phase 4 model provider architecture
+## Current milestone — Phases 5 and 6 model context and adaptive thinking time
+
+`POST /games` accepts optional `context_level`: `minimal` (default), `game_context`, or `structured_position`. It is fixed for the game and returned as `context_level` in every game state. Unknown levels or extra creation fields return 422; `model_provider` and `model_color` remain a required pair for bound games. The same default applies to unbound games. Clients cannot supply credentials, model IDs, provider URLs, prompt text, or a custom context configuration.
+
+The server builds an immutable position at the start of each model turn. `minimal` sends exactly the Phase 4 FEN, side to move, and legal UCI moves. `game_context` adds the authoritative PGN and the model's remaining clock in integer milliseconds. `structured_position` includes everything in `game_context`, plus a square-to-piece map (white uppercase and black lowercase FEN letters), white and black counts for pawn/knight/bishop/rook/queen, castling rights in FEN notation (`-` when absent), and the full move number. These fields come only from python-chess and the authoritative game clock. No live prompt may include evaluation, candidate ranking, suggested move, principal variation, tablebase or opening recommendation, or any other engine-derived hint. Legal moves are the existing chess-rule legality list, not engine suggestions.
+
+`POST /games/{game_id}/model-turn` derives a per-call budget from the model's remaining clock after charging elapsed time at turn start. Remaining time `>=600` seconds allows 15 seconds; `>=300` allows 10; `>=120` allows 6; `>=30` allows 3; below 30 allows 1. The budget is capped at the exact remaining clock time. The boundaries are inclusive. This budget is server-controlled and is not a request field. All provider elapsed time, including failed, illegal, and cancelled calls, is charged to the authoritative model clock. If the clock reaches zero before a move is applied, return 200 with the authoritative timeout game state, regardless of provider output or budget expiry. If the shorter budget expires with clock time remaining, cancel the provider call and return 502 `{"detail":"Model turn failed"}`; leave the board unchanged and award no increment. Other provider and illegal-output failures keep the Phase 4 502 behavior. A successful legal move within both deadlines earns the usual increment. A call whose measured elapsed time reaches its budget cannot apply a move, even if its provider returns at that boundary. Only one model call may be in flight per game; concurrent, stale, wrong-turn, unbound, and terminal requests retain the Phase 4 conflict behavior. Cancellation releases the call guard after charging time. There are no automatic retries or metrics.
+
+Phase 7 retries and metrics, Stockfish, persistence, authentication, and unrelated frontend work remain out of scope.
+
+---
+
+## Prior milestone — Phase 4 model provider architecture
 
 Phase 4 adds one server-initiated model turn while retaining the reviewed Phase 3 chess and clock authority. The approved providers are OpenAI, Anthropic, Gemini, and OpenRouter. Each has a server-side adapter behind one `choose_move(position)` interface. The shared position contains only FEN, side to move, and legal UCI moves. Adapters request one UCI move; they do not receive engine evaluations or a configurable context level. Provider API keys and model IDs come only from server environment variables (`CHESS_<PROVIDER>_API_KEY` and `CHESS_<PROVIDER>_MODEL`). The server never accepts credentials or arbitrary provider URLs from a client, and never returns or logs keys or raw provider errors. The HTTP transport uses the providers' documented REST APIs via `httpx`; no provider SDK is needed.
 
@@ -8,7 +20,7 @@ Phase 4 adds one server-initiated model turn while retaining the reviewed Phase 
 
 `POST /games/{game_id}/model-turn` runs exactly one turn for the bound model when it is that side's turn. Only one model call per game may be in flight. The server snapshots the position, awaits the provider, charges all elapsed time to the model's Phase 3 clock, and validates the returned UCI move with python-chess before applying it and awarding the normal increment. If time expires during the call, the response is the authoritative timeout game state and no move is applied. A provider failure returns 502 with a generic message; a malformed or illegal move returns 502 with a generic message. In either case the board stays unchanged, the model clock is charged, and there is no automatic retry. Wrong-turn, concurrent, stale, terminal, or unbound calls return 409; unknown games return 404. Provider decisions never bypass backend legality or clock checks. The frontend may continue its existing mock opponent path for unbound games; wiring selection to real providers is outside this one-turn backend milestone.
 
-Phase 5 context levels, Phase 6 adaptive timing, Phase 7 retry and illegal-move metrics, Stockfish, persistence, authentication, and unrelated design changes remain out of scope.
+This earlier one-turn contract is superseded by the current context and timing rules above.
 
 ---
 

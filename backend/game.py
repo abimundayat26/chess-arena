@@ -51,6 +51,7 @@ class Game:
     time_control: str = "10+5"
     model_provider: str | None = None
     model_color: str | None = None
+    context_level: str = "minimal"
     clock: Callable[[], float] = field(default=monotonic, repr=False)
     white_seconds: float = field(init=False)
     black_seconds: float = field(init=False)
@@ -83,6 +84,7 @@ class Game:
             "time_control": self.time_control,
             "model_provider": self.model_provider,
             "model_color": self.model_color,
+            "context_level": self.context_level,
             "white_clock_ms": ceil(self.white_seconds * 1000),
             "black_clock_ms": ceil(self.black_seconds * 1000),
             "active_clock": (
@@ -179,12 +181,13 @@ class GameStore:
 
     def create(
         self, time_control: str = "10+5", model_provider: str | None = None,
-        model_color: str | None = None,
+        model_color: str | None = None, context_level: str = "minimal",
     ) -> dict:
         with self._lock:
             game = Game(
                 time_control=time_control, clock=self._clock,
                 model_provider=model_provider, model_color=model_color,
+                context_level=context_level,
             )
             self._games[game.id] = game
             return game.snapshot()
@@ -214,8 +217,27 @@ class GameStore:
             if game_id in self._model_calls:
                 raise ModelTurnConflict("Model turn already in progress")
             self._model_calls.add(game_id)
+            extra = {}
+            if game.context_level != "minimal":
+                extra["pgn"] = game.snapshot()["pgn"]
+                remaining = game.white_seconds if game.board.turn else game.black_seconds
+                extra["time_remaining_ms"] = ceil(remaining * 1000)
+            if game.context_level == "structured_position":
+                extra["pieces"] = tuple(
+                    (chess.square_name(square), piece.symbol())
+                    for square, piece in sorted(game.board.piece_map().items())
+                )
+                extra["material_counts"] = tuple(
+                    (name, len(game.board.pieces(kind, chess.WHITE)), len(game.board.pieces(kind, chess.BLACK)))
+                    for name, kind in (
+                        ("pawn", chess.PAWN), ("knight", chess.KNIGHT),
+                        ("bishop", chess.BISHOP), ("rook", chess.ROOK), ("queen", chess.QUEEN),
+                    )
+                )
+                extra["castling_rights"] = game.board.castling_xfen()
+                extra["fullmove_number"] = game.board.fullmove_number
             return game.model_provider, ModelPosition(
-                game.board.fen(), color, tuple(move.uci() for move in game.board.legal_moves)
+                game.board.fen(), color, tuple(move.uci() for move in game.board.legal_moves), **extra
             )
 
     def finish_model_turn(self, game_id: str, uci: str | None) -> dict:
