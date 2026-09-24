@@ -28,13 +28,21 @@ class Game:
     result: str = "*"
     termination_reason: str | None = None
 
+    def __post_init__(self) -> None:
+        if self.status == "playing":
+            self._finish_board_outcome()
+
     def snapshot(self) -> dict:
         pgn_game = chess.pgn.Game.from_board(self.board)
         pgn_game.headers["Result"] = self.result
         return {
             "game_id": self.id,
             "fen": self.board.fen(),
-            "pgn": pgn_game.accept(chess.pgn.StringExporter(headers=False, variations=False, comments=False)),
+            "pgn": pgn_game.accept(
+                chess.pgn.StringExporter(
+                    headers="FEN" in pgn_game.headers, variations=False, comments=False
+                )
+            ),
             "side_to_move": "white" if self.board.turn == chess.WHITE else "black",
             "legal_moves": [move.uci() for move in self.board.legal_moves] if self.status == "playing" else [],
             "game_status": self.status,
@@ -51,7 +59,10 @@ class Game:
         if move not in self.board.legal_moves:
             raise IllegalMove("Illegal move")
         self.board.push(move)
-        outcome = self.board.outcome(claim_draw=True)
+        self._finish_board_outcome()
+
+    def _finish_board_outcome(self) -> None:
+        outcome = self.board.outcome(claim_draw=False)
         if outcome is not None:
             reasons = {
                 chess.Termination.CHECKMATE: "checkmate",
@@ -66,6 +77,10 @@ class Game:
                 chess.Termination.VARIANT_DRAW: "variant_draw",
             }
             self._finish(outcome.result(), reasons[outcome.termination])
+        elif self.board.is_repetition(3):
+            self._finish("1/2-1/2", "repetition")
+        elif self.board.halfmove_clock >= 100:
+            self._finish("1/2-1/2", "fifty_move_rule")
 
     def resign(self, color: str) -> None:
         self._require_playing()
