@@ -1,0 +1,129 @@
+"use client"
+
+import { useState } from "react"
+
+import { AppShell } from "@/components/app-shell"
+import { GameSetup } from "@/components/game-setup/game-setup"
+import { ActiveGame } from "@/components/active-game/active-game"
+import { GameOver } from "@/components/game-over/game-over"
+import { gameApi, type ServerGame } from "@/lib/chess/api"
+import { mockAccuracy } from "@/lib/chess/mock-data"
+import type {
+  AppScreen,
+  CompletedGame,
+  GameOverInfo,
+  MatchConfig,
+  PlayerColor,
+} from "@/lib/chess/types"
+
+function resolveHumanColor(
+  preference: MatchConfig["colorPreference"]
+): PlayerColor {
+  return preference === "random"
+    ? Math.random() < 0.5
+      ? "white"
+      : "black"
+    : preference
+}
+
+export default function Home() {
+  const [screen, setScreen] = useState<AppScreen>("setup")
+  const [config, setConfig] = useState<MatchConfig | null>(null)
+  const [humanColor, setHumanColor] = useState<PlayerColor>("white")
+  const [initialState, setInitialState] = useState<ServerGame | null>(null)
+  const [completedGame, setCompletedGame] = useState<CompletedGame | null>(null)
+  const [starting, setStarting] = useState(false)
+  const [startError, setStartError] = useState<string | null>(null)
+
+  async function handleStart(matchConfig: MatchConfig) {
+    if (starting) return
+    setStarting(true)
+    setStartError(null)
+    try {
+      const created = await gameApi.create()
+      const current = await gameApi.get(created.game_id)
+      setConfig(matchConfig)
+      setHumanColor(resolveHumanColor(matchConfig.colorPreference))
+      setCompletedGame(null)
+      setInitialState(current)
+      setScreen("playing")
+    } catch (cause) {
+      setStartError(
+        cause instanceof Error ? cause.message : "Could not start the game"
+      )
+    } finally {
+      setStarting(false)
+    }
+  }
+
+  function handleGameOver(
+    info: GameOverInfo,
+    snapshot: {
+      pgn: string
+      san: string[]
+      fen: string
+      illegalModelMoves: number
+    }
+  ) {
+    if (!config) return
+    const { humanAccuracy, modelAccuracy } = mockAccuracy()
+    setCompletedGame({
+      config,
+      gameOver: info,
+      pgn: snapshot.pgn,
+      san: snapshot.san,
+      fen: snapshot.fen,
+      extras: {
+        humanColor,
+        humanClockLabel: "",
+        modelClockLabel: "",
+        illegalModelMoves: snapshot.illegalModelMoves,
+        humanAccuracy,
+        modelAccuracy,
+      },
+    })
+    setScreen("game-over")
+  }
+
+  function handleNewSetup() {
+    setConfig(null)
+    setCompletedGame(null)
+    setInitialState(null)
+    setScreen("setup")
+  }
+
+  return (
+    <AppShell>
+      {screen === "setup" && (
+        <>
+          <GameSetup onStart={handleStart} starting={starting} />
+          {startError && (
+            <p role="alert" className="mt-4 text-center text-sm text-accent">
+              {startError}
+            </p>
+          )}
+        </>
+      )}
+      {screen === "playing" && config && initialState && (
+        <ActiveGame
+          key={initialState.game_id}
+          initialState={initialState}
+          config={config}
+          humanColor={humanColor}
+          onGameOver={handleGameOver}
+        />
+      )}
+      {screen === "game-over" && completedGame && (
+        <GameOver
+          game={completedGame}
+          starting={starting}
+          startError={startError}
+          onRematch={() => {
+            if (config) void handleStart(config)
+          }}
+          onNewSetup={handleNewSetup}
+        />
+      )}
+    </AppShell>
+  )
+}

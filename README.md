@@ -1,14 +1,37 @@
-# Multi-Model Chess Arena backend
+# Multi-Model Chess Arena
 
-Phase 2 provides an in-memory FastAPI chess API. The server validates UCI moves with `python-chess` and returns authoritative FEN, PGN, legal moves, and game result state.
+The frontend uses the reviewed in-memory FastAPI chess backend. The backend validates every move and returns authoritative FEN, PGN, legal moves, status, and result. `chess.js` supplies local board feedback. Opponent moves and draw decisions are mocked, but both actions are submitted to the backend.
+
+## Run locally
+
+In one terminal:
 
 ```sh
 uv sync --group dev
 uv run uvicorn backend.app:app --reload
-uv run pytest
 ```
 
-The API is documented at `/docs` while the server is running. Its endpoints are:
+In another:
+
+```sh
+npm ci
+npm run dev
+```
+
+Open `http://localhost:3000`. The development server proxies `/api/*` to `http://127.0.0.1:8000/*`. Set `CHESS_API_URL` before starting Next.js to use another local backend address.
+
+## Checks
+
+```sh
+uv run pytest
+npm run build
+npm run typecheck
+npm run lint
+npx playwright install chromium
+npm run test:e2e
+```
+
+Backend endpoints are documented at `http://127.0.0.1:8000/docs`.
 
 | Method | Path | Body |
 | --- | --- | --- |
@@ -18,4 +41,4 @@ The API is documented at `/docs` while the server is running. Its endpoints are:
 | POST | `/games/{game_id}/resign` | `{"color":"white"}` or `{"color":"black"}` |
 | POST | `/games/{game_id}/draw-offer` | `{"accepted":true}` or `{"accepted":false}` |
 
-The draw response is a placeholder supplied by the caller. Games exist only in the process that created them and disappear when it exits. Use one server worker for this milestone.
+Games exist only in the FastAPI process that created them; use one backend worker. Restarting it loses active games. Model providers, persistence, production clocks, and analysis are not connected.

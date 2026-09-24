@@ -1,5 +1,13 @@
 # Multi-Model Chess Arena
 
+## Current integration milestone (September 2026)
+
+The Phase 1 sections below document the frontend prototype. The current milestone connects that frontend to the reviewed Phase 2 in-memory FastAPI backend. For this milestone, the backend owns FEN, PGN, legal moves, status, result, and termination reason. The UI uses chess.js for immediate move selection and legal indicators, then reconciles with each backend response. Game creation, retrieval, moves, resignation, and draw offers use the local API. Mock opponent moves also go through that API. Model identity, draw acceptance decisions, analysis, and clocks remain mocked. Games disappear when the backend process stops. No provider APIs, persistence, or production clocks are part of this milestone.
+
+The integration contract above supersedes Phase 1 statements below that call for frontend-only state or prohibit a backend. The frontend design and other Phase 1 requirements still apply.
+
+---
+
 ## 1. Product Overview
 
 Multi-Model Chess Arena is a web application where a human can play timed chess games against AI language models.

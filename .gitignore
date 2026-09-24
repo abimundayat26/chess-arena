@@ -1,5 +1,15 @@
 .vercel
+.vercel/
 .env*
+.env.local
 .venv/
 __pycache__/
+*.pyc
 .pytest_cache/
+node_modules/
+.next/
+dist/
+next-env.d.ts
+*.tsbuildinfo
+playwright-report/
+test-results/

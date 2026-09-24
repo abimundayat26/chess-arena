@@ -21,7 +21,7 @@ SPEC.md
 Status:
 
 ```text
-CURRENT
+COMPLETED PROTOTYPE
 ```
 
 Primary goals:
@@ -42,9 +42,15 @@ See `SPEC.md` for authoritative requirements.
 
 ---
 
+# Current milestone — Frontend–backend integration
+
+Connect the Phase 1 frontend to the reviewed in-memory Phase 2 API. The backend is authoritative; chess.js remains for local board feedback. Model moves and draw acceptance remain mocked. See the current integration contract in `SPEC.md`.
+
+---
+
 # Phase 2 — Authoritative Chess Backend
 
-Introduce:
+Implemented and reviewed as the in-memory chess API:
 
 ```text
 Python
