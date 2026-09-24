@@ -33,6 +33,7 @@ interface ActiveGameProps {
       illegalModelMoves: number
     }
   ) => void
+  onNewSetup: () => void
 }
 
 function formatClock(totalSeconds: number): string {
@@ -47,6 +48,7 @@ export function ActiveGame({
   config,
   humanColor,
   onGameOver,
+  onNewSetup,
 }: ActiveGameProps) {
   const [state, setState] = useState(initialState)
   const game = useChessGame(state)
@@ -233,9 +235,14 @@ export function ActiveGame({
           </div>
         )}
         {syncFailed && (
-          <Button variant="outline" onClick={() => void refresh()}>
-            Retry sync
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => void refresh()}>
+              Retry sync
+            </Button>
+            <Button variant="outline" onClick={onNewSetup}>
+              New setup
+            </Button>
+          </div>
         )}
         {!syncFailed && error && state.side_to_move === modelColor && (
           <Button variant="outline" onClick={() => setError(null)}>

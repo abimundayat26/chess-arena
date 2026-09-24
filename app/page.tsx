@@ -111,6 +111,7 @@ export default function Home() {
           config={config}
           humanColor={humanColor}
           onGameOver={handleGameOver}
+          onNewSetup={handleNewSetup}
         />
       )}
       {screen === "game-over" && completedGame && (
