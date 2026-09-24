@@ -8,6 +8,7 @@ const TERMINATION_LABELS: Record<TerminationReason, string> = {
   fifty_move_rule: "Fifty-move rule",
   resignation: "Resignation",
   draw_agreement: "Draw agreement",
+  timeout: "Timeout",
   variant_win: "Variant win",
   variant_loss: "Variant loss",
   variant_draw: "Variant draw",

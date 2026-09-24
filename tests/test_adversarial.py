@@ -8,12 +8,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.app import create_app
-from backend.game import Game, GameOver
+from backend.game import Game, GameOver, GameStore
 
 
 @pytest.fixture
 def client():
-    with TestClient(create_app()) as test_client:
+    with TestClient(create_app(GameStore(clock=lambda: 0.0))) as test_client:
         yield test_client
 
 

@@ -42,7 +42,7 @@ See `SPEC.md` for authoritative requirements.
 
 ---
 
-# Current milestone — Frontend–backend integration
+# Prior milestone — Frontend–backend integration
 
 Connect the Phase 1 frontend to the reviewed in-memory Phase 2 API. The backend is authoritative; chess.js remains for local board feedback. Model moves and draw acceptance remain mocked. See the current integration contract in `SPEC.md`.
 
@@ -98,6 +98,8 @@ Authoritative state returned
 ---
 
 # Phase 3 — Production Clock System
+
+Status: **ACTIVE**. The authoritative contract is in `SPEC.md`.
 
 Implement real timed chess.
 

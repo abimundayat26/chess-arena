@@ -1,6 +1,13 @@
 import { expect, test, type Page } from "@playwright/test"
 import { Chess } from "chess.js"
 
+function withoutRunningClock(state: Record<string, unknown>) {
+  const { white_clock_ms: _white, black_clock_ms: _black, ...rest } = state
+  void _white
+  void _black
+  return rest
+}
+
 async function authoritativeState(page: Page, gameId: string) {
   const response = await page.request.get(`/api/games/${gameId}`)
   expect(response.status()).toBe(200)
@@ -102,7 +109,7 @@ test("setup, local rejection, backend move, resignation, and new setup", async (
     })
     expect(repeated.status()).toBe(409)
   }
-  expect(await authoritativeState(page, gameId)).toEqual(final)
+  expect(withoutRunningClock(await authoritativeState(page, gameId))).toEqual(withoutRunningClock(final))
   await expect(page.getByRole("button", { name: "Resign" })).toHaveCount(0)
   await page.getByRole("button", { name: "New setup" }).click()
   await expect(page.getByRole("button", { name: "Start Game" })).toBeVisible()
@@ -255,7 +262,7 @@ test("a rejected API move preserves the authoritative position and remains retry
   await expect(
     page.getByRole("alert").filter({ hasText: "Try again" })
   ).toBeVisible()
-  expect(await authoritativeState(page, gameId)).toEqual(initial)
+  expect(withoutRunningClock(await authoritativeState(page, gameId))).toEqual(withoutRunningClock(initial))
   await expect(page.getByRole("button", { name: /^e2 white p$/ })).toBeVisible()
   await page.unroute(`**/api/games/${gameId}/moves`)
   await page.getByRole("button", { name: /^e2 white p$/ }).click()
@@ -350,4 +357,61 @@ test("a game lost by the backend can return to setup", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Retry sync" })).toBeVisible()
   await page.getByRole("button", { name: "New setup" }).click()
   await expect(page.getByRole("button", { name: "Start Game" })).toBeVisible()
+})
+
+test("selected clock runs and legal move receives increment", async ({ page }) => {
+  await page.goto("/")
+  await page.getByRole("button", { name: "3+2", exact: true }).click()
+  const created = page.waitForResponse((response) =>
+    response.url().endsWith("/api/games") && response.request().method() === "POST"
+  )
+  await page.getByRole("button", { name: "Start Game" }).click()
+  const initial = await (await created).json()
+  expect(initial.time_control).toBe("3+2")
+  expect(initial.white_clock_ms).toBe(180000)
+  await expect(page.getByRole("timer", { name: "You clock" })).toHaveText("03:00")
+  await expect(page.getByRole("timer", { name: "Claude Sonnet clock" })).toHaveText("03:00")
+  await expect(page.getByRole("timer", { name: "You clock" })).toHaveText("02:59", { timeout: 3000 })
+  const moved = page.waitForResponse((response) => response.url().includes("/moves") && response.request().method() === "POST")
+  await page.getByRole("button", { name: /^e2 white p$/ }).click()
+  await page.getByRole("button", { name: /^e4$/ }).click()
+  const state = await (await moved).json()
+  expect(state.white_clock_ms).toBeGreaterThan(180000)
+  expect(state.white_clock_ms).toBeLessThan(182000)
+  expect(state.active_clock).toBe("black")
+  await expect(page.getByRole("timer", { name: "You clock" })).toHaveText("03:01")
+  await expect(page.getByRole("timer", { name: "Claude Sonnet clock" })).toHaveText("02:59", { timeout: 3000 })
+})
+
+test("timeout from authoritative refresh opens Game Over", async ({ page }) => {
+  const gameId = await startGame(page)
+  let supplied = false
+  await page.route(`**/api/games/${gameId}`, async (route) => {
+    const response = await route.fetch()
+    const state = await response.json()
+    supplied = true
+    await route.fulfill({ response, json: {
+      ...state,
+      white_clock_ms: 0,
+      active_clock: null,
+      game_status: "game-over",
+      result: "0-1",
+      termination_reason: "timeout",
+      legal_moves: [],
+    } })
+  })
+  await expect(page.getByText("Timeout")).toBeVisible({ timeout: 5000 })
+  expect(supplied).toBeTruthy()
+  await expect(page.getByRole("button", { name: "Resign" })).toHaveCount(0)
+})
+
+test("rejected stale move reconciles both clocks from the API", async ({ page }) => {
+  const gameId = await startGame(page)
+  await backendMove(page, gameId, "e2e4")
+  await syncStaleBoard(page, 400)
+  const state = await authoritativeState(page, gameId)
+  await expect(page.getByRole("button", { name: /^e4 white p$/ })).toBeVisible()
+  const whiteLabel = `${Math.floor(Math.ceil(state.white_clock_ms / 1000) / 60).toString().padStart(2, "0")}:${(Math.ceil(state.white_clock_ms / 1000) % 60).toString().padStart(2, "0")}`
+  await expect(page.getByRole("timer", { name: "You clock" })).toHaveText(whiteLabel)
+  await expect(page.getByRole("timer", { name: "Claude Sonnet clock" })).toContainText("10:")
 })

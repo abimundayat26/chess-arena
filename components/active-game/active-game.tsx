@@ -36,8 +36,8 @@ interface ActiveGameProps {
   onNewSetup: () => void
 }
 
-function formatClock(totalSeconds: number): string {
-  const s = Math.max(0, Math.round(totalSeconds))
+function formatClock(totalMs: number): string {
+  const s = Math.max(0, Math.ceil(totalMs / 1000))
   return `${Math.floor(s / 60)
     .toString()
     .padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`
@@ -52,12 +52,14 @@ export function ActiveGame({
 }: ActiveGameProps) {
   const [state, setState] = useState(initialState)
   const game = useChessGame(state)
-  const [humanSeconds, setHumanSeconds] = useState(
-    config.timeControl.initialMinutes * 60
-  )
-  const [modelSeconds, setModelSeconds] = useState(
-    config.timeControl.initialMinutes * 60
-  )
+  const [receivedAt, setReceivedAt] = useState(() => performance.now())
+  const [now, setNow] = useState(() => performance.now())
+  const applyState = useCallback((next: ServerGame) => {
+    const received = performance.now()
+    setReceivedAt(received)
+    setNow(received)
+    setState(next)
+  }, [])
   const [busy, setBusy] = useState(false)
   const busyRef = useRef(false)
   const [syncFailed, setSyncFailed] = useState(false)
@@ -70,7 +72,7 @@ export function ActiveGame({
     busyRef.current = true
     setBusy(true)
     try {
-      setState(await gameApi.get(state.game_id))
+      applyState(await gameApi.get(state.game_id))
       setError(null)
       setSyncFailed(false)
     } catch (cause) {
@@ -82,7 +84,7 @@ export function ActiveGame({
       busyRef.current = false
       setBusy(false)
     }
-  }, [state.game_id])
+  }, [state.game_id, applyState])
 
   const runAction = useCallback(
     async (action: () => Promise<ServerGame>): Promise<boolean> => {
@@ -92,14 +94,14 @@ export function ActiveGame({
       setBusy(true)
       setError(null)
       try {
-        setState(await action())
+        applyState(await action())
         return true
       } catch (cause) {
         const message =
           cause instanceof Error ? cause.message : "Game request failed"
         // A response can be lost after the server commits the action. Always fetch its current state.
         try {
-          setState(await gameApi.get(state.game_id))
+          applyState(await gameApi.get(state.game_id))
           setError(message)
         } catch {
           setError(
@@ -113,7 +115,7 @@ export function ActiveGame({
         setBusy(false)
       }
     },
-    [state.game_id, state.game_status, syncFailed]
+    [state.game_id, state.game_status, syncFailed, applyState]
   )
 
   const submitMove = useCallback(
@@ -150,14 +152,26 @@ export function ActiveGame({
   }, [state, humanColor, busy, syncFailed, error, runAction])
 
   useEffect(() => {
-    if (state.game_status !== "playing" || busy || syncFailed) return
-    const interval = window.setInterval(() => {
-      if (state.side_to_move === humanColor)
-        setHumanSeconds((s) => Math.max(0, s - 1))
-      else setModelSeconds((s) => Math.max(0, s - 1))
-    }, 1000)
+    if (state.game_status !== "playing") return
+    const interval = window.setInterval(() => setNow(performance.now()), 200)
     return () => window.clearInterval(interval)
-  }, [state.side_to_move, state.game_status, humanColor, busy, syncFailed])
+  }, [state.game_status])
+
+  useEffect(() => {
+    if (state.game_status !== "playing" || syncFailed) return
+    const interval = window.setInterval(async () => {
+      if (busyRef.current) return
+      busyRef.current = true
+      try {
+        applyState(await gameApi.get(state.game_id))
+      } catch {
+        // Keep the last server snapshot visible; the next poll can recover it.
+      } finally {
+        busyRef.current = false
+      }
+    }, 2000)
+    return () => window.clearInterval(interval)
+  }, [state.game_id, state.game_status, syncFailed, applyState])
 
   useEffect(() => {
     if (state.game_status !== "game-over" || hasReportedRef.current) return
@@ -190,6 +204,9 @@ export function ActiveGame({
   }
 
   const modelColor: PlayerColor = humanColor === "white" ? "black" : "white"
+  const projectedMs = (color: PlayerColor) =>
+    Math.max(0, (color === "white" ? state.white_clock_ms : state.black_clock_ms) -
+      (state.active_clock === color ? now - receivedAt : 0))
   const isThinking =
     state.game_status === "playing" &&
     state.side_to_move === modelColor &&
@@ -204,7 +221,7 @@ export function ActiveGame({
           variant="model"
           name={config.model.name}
           subtitle={config.model.provider}
-          clockLabel={formatClock(modelSeconds)}
+          clockLabel={formatClock(projectedMs(modelColor))}
           isActiveTurn={game.turn === modelColor && !game.isGameOver}
           isThinking={isThinking}
         />
@@ -218,7 +235,7 @@ export function ActiveGame({
         <PlayerIdentity
           variant="human"
           name="You"
-          clockLabel={formatClock(humanSeconds)}
+          clockLabel={formatClock(projectedMs(humanColor))}
           isActiveTurn={game.turn === humanColor && !game.isGameOver}
         />
       </div>

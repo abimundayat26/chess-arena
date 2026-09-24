@@ -9,6 +9,10 @@ export interface ServerGame {
   game_status: "playing" | "game-over"
   result: "*" | "1-0" | "0-1" | "1/2-1/2"
   termination_reason: string | null
+  time_control: string
+  white_clock_ms: number
+  black_clock_ms: number
+  active_clock: PlayerColor | null
 }
 
 export class GameApiError extends Error {
@@ -51,7 +55,7 @@ async function request(
 }
 
 export const gameApi = {
-  create: () => request("/games", "POST"),
+  create: (timeControl: string) => request("/games", "POST", { time_control: timeControl }),
   get: (id: string) => request(`/games/${encodeURIComponent(id)}`),
   move: (id: string, uci: string) =>
     request(`/games/${encodeURIComponent(id)}/moves`, "POST", { uci }),

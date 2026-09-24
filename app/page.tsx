@@ -40,7 +40,7 @@ export default function Home() {
     setStarting(true)
     setStartError(null)
     try {
-      const created = await gameApi.create()
+      const created = await gameApi.create(matchConfig.timeControl.id)
       const current = await gameApi.get(created.game_id)
       setConfig(matchConfig)
       setHumanColor(resolveHumanColor(matchConfig.colorPreference))

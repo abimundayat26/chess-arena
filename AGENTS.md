@@ -36,10 +36,10 @@ Current requirements in `SPEC.md` take priority over future ideas in `ROADMAP.md
 The project is currently in:
 
 ```text
-Frontend–backend integration milestone (Phase 1 UI + reviewed Phase 2 chess API)
+Phase 3 production clocks (Phase 1 UI + reviewed Phase 2 chess API)
 ```
 
-The frontend and backend remain in scope only for the integration contract in `SPEC.md`. Agents must not implement future phases unless explicitly instructed.
+The frontend and backend remain in scope only for the Phase 3 contract in `SPEC.md`. Agents must not implement future phases unless explicitly instructed.
 
 The fact that functionality appears in `ROADMAP.md` does NOT authorize its implementation.
 

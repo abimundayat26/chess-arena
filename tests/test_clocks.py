@@ -1,0 +1,111 @@
+"""Deterministic contract tests for authoritative clocks."""
+
+import chess
+import pytest
+from fastapi.testclient import TestClient
+
+from backend.app import create_app
+from backend.game import Game, GameStore
+
+
+class Clock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+    def advance(self, seconds):
+        self.now += seconds
+
+
+@pytest.fixture
+def timed_client():
+    clock = Clock()
+    with TestClient(create_app(GameStore(clock=clock))) as client:
+        yield client, clock
+
+
+@pytest.mark.parametrize("preset,initial,increment", [
+    ("3+0", 180, 0), ("3+2", 180, 2), ("5+0", 300, 0),
+    ("5+3", 300, 3), ("10+0", 600, 0), ("10+5", 600, 5),
+    ("15+10", 900, 10), ("20+0", 1200, 0),
+])
+def test_presets_and_increments(timed_client, preset, initial, increment):
+    client, clock = timed_client
+    created = client.post("/games", json={"time_control": preset}).json()
+    game_id = created["game_id"]
+    assert created["time_control"] == preset
+    assert created["white_clock_ms"] == created["black_clock_ms"] == initial * 1000
+    assert created["active_clock"] == "white"
+    clock.advance(1.25)
+    moved = client.post(f"/games/{game_id}/moves", json={"uci": "e2e4"}).json()
+    assert moved["white_clock_ms"] == (initial - 1.25 + increment) * 1000
+    assert moved["black_clock_ms"] == initial * 1000
+    assert moved["active_clock"] == "black"
+    clock.advance(2.5)
+    fetched = client.get(f"/games/{game_id}").json()
+    assert fetched["black_clock_ms"] == (initial - 2.5) * 1000
+    assert fetched["white_clock_ms"] == moved["white_clock_ms"]
+    assert client.post(f"/games/{game_id}/moves", json={"uci": "e7e5"}).json()["black_clock_ms"] == (initial - 2.5 + increment) * 1000
+
+
+def test_rejected_moves_charge_active_side_and_no_increment(timed_client):
+    client, clock = timed_client
+    game_id = client.post("/games", json={"time_control": "3+2"}).json()["game_id"]
+    clock.advance(2)
+    assert client.post(f"/games/{game_id}/moves", json={"uci": "e2e5"}).status_code == 400
+    state = client.get(f"/games/{game_id}").json()
+    assert state["white_clock_ms"] == 178000
+    assert state["fen"] == chess.STARTING_FEN
+    clock.advance(3)
+    state = client.post(f"/games/{game_id}/moves", json={"uci": "e2e4"}).json()
+    assert state["white_clock_ms"] == 177000
+    clock.advance(4)
+    assert client.post(f"/games/{game_id}/moves", json={"uci": "e2e4"}).status_code == 400
+    assert client.get(f"/games/{game_id}").json()["black_clock_ms"] == 176000
+
+
+@pytest.mark.parametrize("loser,expected", [("white", "0-1"), ("black", "1-0")])
+def test_timeout_freezes_state_and_rejects_actions(timed_client, loser, expected):
+    client, clock = timed_client
+    game_id = client.post("/games", json={"time_control": "3+0"}).json()["game_id"]
+    if loser == "black":
+        client.post(f"/games/{game_id}/moves", json={"uci": "e2e4"})
+    clock.advance(180)
+    final = client.get(f"/games/{game_id}").json()
+    assert final["game_status"] == "game-over"
+    assert final["result"] == expected
+    assert final["termination_reason"] == "timeout"
+    assert final["active_clock"] is None
+    assert final[f"{loser}_clock_ms"] == 0
+    assert final["legal_moves"] == []
+    for path, body in [("moves", {"uci": "e2e4"}), ("resign", {"color": loser}), ("draw-offer", {"accepted": True}), ("draw-offer", {"accepted": False})]:
+        assert client.post(f"/games/{game_id}/{path}", json=body).status_code == 409
+    clock.advance(100)
+    assert client.get(f"/games/{game_id}").json() == final
+
+
+def test_timeout_during_action_wins_over_action(timed_client):
+    client, clock = timed_client
+    game_id = client.post("/games", json={"time_control": "3+2"}).json()["game_id"]
+    clock.advance(180.01)
+    assert client.post(f"/games/{game_id}/moves", json={"uci": "e2e4"}).status_code == 409
+    final = client.get(f"/games/{game_id}").json()
+    assert final["termination_reason"] == "timeout"
+    assert final["fen"] == chess.STARTING_FEN
+    assert final["white_clock_ms"] == 0
+
+
+def test_timeout_is_draw_when_opponent_cannot_mate():
+    clock = Clock()
+    game = Game(board=chess.Board("4k3/8/8/8/8/8/8/4K2R w - - 0 1"), time_control="3+0", clock=clock)
+    clock.advance(180)
+    state = game.snapshot()
+    assert state["termination_reason"] == "timeout"
+    assert state["result"] == "1/2-1/2"
+
+
+def test_invalid_preset_is_rejected(timed_client):
+    client, _ = timed_client
+    assert client.post("/games", json={"time_control": "30+0"}).status_code == 422

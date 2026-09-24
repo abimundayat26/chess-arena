@@ -42,6 +42,7 @@ export type TerminationReason =
   | "fifty_move_rule"
   | "resignation"
   | "draw_agreement"
+  | "timeout"
   | "variant_win"
   | "variant_loss"
   | "variant_draw"

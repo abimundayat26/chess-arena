@@ -3,12 +3,12 @@ from fastapi.testclient import TestClient
 import pytest
 
 from backend.app import create_app
-from backend.game import Game, IllegalMove
+from backend.game import Game, GameStore, IllegalMove
 
 
 @pytest.fixture
 def client():
-    with TestClient(create_app()) as test_client:
+    with TestClient(create_app(GameStore(clock=lambda: 0.0))) as test_client:
         yield test_client
 
 

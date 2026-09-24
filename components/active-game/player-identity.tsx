@@ -41,7 +41,7 @@ export function PlayerIdentity({
           {isThinking && <ThinkingIndicator />}
         </div>
       </div>
-      <ChessClock label={clockLabel} active={isActiveTurn} low={low} />
+      <ChessClock name={name} label={clockLabel} active={isActiveTurn} low={low} />
     </div>
   )
 }

@@ -1,6 +1,14 @@
 # Multi-Model Chess Arena
 
-## Current integration milestone (September 2026)
+## Current milestone — Phase 3 production clocks (September 2026)
+
+The reviewed Phase 2 API remains authoritative for chess state. Phase 3 makes it authoritative for both clocks and timeout results. Game creation accepts one of `3+0`, `3+2`, `5+0`, `5+3`, `10+0`, `10+5`, `15+10`, or `20+0` (default `10+5` for existing clients). API responses include the time control, each side's remaining milliseconds, and the active clock. The server measures elapsed time with a monotonic source on every game read or action, including rejected moves and mocked opponent turns. A legal move consumes the mover's elapsed time and adds its increment; an illegal move earns no increment. At zero, the game ends with `termination_reason = "timeout"` and a win for the other side, except when that side cannot possibly mate, in which case the result is a draw. Later moves and game-ending actions return 409. Finished clocks stop. The frontend displays a local projection between server responses, then replaces it with authoritative clock values on every response and periodic refresh. `chess.js` remains local move feedback only. Model APIs, Stockfish, persistence, and authentication remain out of scope.
+
+The Phase 1 prototype requirements below describe the original UI. This current milestone supersedes their mock-clock and frontend-only clauses.
+
+---
+
+## Prior frontend–backend integration milestone
 
 The Phase 1 sections below document the frontend prototype. The current milestone connects that frontend to the reviewed Phase 2 in-memory FastAPI backend. For this milestone, the backend owns FEN, PGN, legal moves, status, result, and termination reason. The UI uses chess.js for immediate move selection and legal indicators, then reconciles with each backend response. Game creation, retrieval, moves, resignation, and draw offers use the local API. Mock opponent moves also go through that API. Model identity, draw acceptance decisions, analysis, and clocks remain mocked. Games disappear when the backend process stops. No provider APIs, persistence, or production clocks are part of this milestone.
 
