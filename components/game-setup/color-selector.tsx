@@ -19,10 +19,9 @@ export function ColorSelector({ value, onChange }: ColorSelectorProps) {
     <div>
       <h3 className="font-heading text-sm font-semibold text-foreground">Play as</h3>
       <ToggleGroup
-        type="single"
-        value={value}
+        value={[value]}
         onValueChange={(next) => {
-          if (next) onChange(next as ColorPreference)
+          if (next[0]) onChange(next[0] as ColorPreference)
         }}
         className="mt-3 w-full gap-2"
       >

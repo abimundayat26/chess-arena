@@ -84,11 +84,11 @@ export function DifficultySelector({
               </FieldLabel>
               <Slider
                 id="reasoning-effort"
-                value={[context.reasoningEffort]}
+                value={context.reasoningEffort}
                 max={100}
                 step={5}
-                onValueChange={([reasoningEffort]) =>
-                  onContextChange({ ...context, reasoningEffort })
+                onValueChange={(reasoningEffort) =>
+                  onContextChange({ ...context, reasoningEffort: reasoningEffort as number })
                 }
               />
             </Field>
@@ -98,12 +98,15 @@ export function DifficultySelector({
               </FieldLabel>
               <Slider
                 id="max-response-time"
-                value={[context.maxResponseTimeSeconds]}
+                value={context.maxResponseTimeSeconds}
                 max={30}
                 min={1}
                 step={1}
-                onValueChange={([maxResponseTimeSeconds]) =>
-                  onContextChange({ ...context, maxResponseTimeSeconds })
+                onValueChange={(maxResponseTimeSeconds) =>
+                  onContextChange({
+                    ...context,
+                    maxResponseTimeSeconds: maxResponseTimeSeconds as number,
+                  })
                 }
               />
             </Field>
