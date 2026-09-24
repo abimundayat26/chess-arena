@@ -453,5 +453,10 @@ If it changes the approved visual language:
 ```text
 update DESIGN.md
 ```
+Backend workflow:
+1. Implementer builds a focused milestone and commits.
+2. Tester/reviewer branches from that commit.
+3. Tester adds adversarial tests and fixes only verified issues.
+4. Reviewed work is merged only after full tests pass.
 
 Do not place all project information into one document again.
