@@ -2,12 +2,13 @@
 
 import asyncio
 from dataclasses import replace
+import os
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict
 
-from backend.game import GameNotFound, GameOver, GameStore, IllegalMove, ModelTurnConflict
+from backend.game import GameCorrupt, GameNotFound, GameOver, GameStore, IllegalMove, ModelTurnConflict
 from backend.providers import ProviderBinding, configured_providers
 
 
@@ -58,8 +59,13 @@ def create_app(
     providers: dict[str, ProviderBinding] | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Multi-Model Chess Arena")
-    games = store if store is not None else GameStore()
+    games = store if store is not None else GameStore(path=os.environ.get("CHESS_DB_PATH", ".data/chess-arena.sqlite3"))
     available = providers if providers is not None else configured_providers()
+
+    @app.exception_handler(GameCorrupt)
+    async def corrupt_game_handler(_request, _exc):
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=503, content={"detail": "Stored game is unavailable"})
 
     @app.post("/games", status_code=201, response_model=GameState)
     async def create_game(request: CreateGameRequest | None = None):

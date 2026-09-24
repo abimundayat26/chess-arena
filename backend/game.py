@@ -1,6 +1,7 @@
 """In-memory, authoritative chess state and game operations."""
 
 from dataclasses import dataclass, field
+import json
 from math import ceil
 from threading import RLock
 from time import monotonic
@@ -11,9 +12,14 @@ import chess
 import chess.pgn
 
 from backend.providers import ModelPosition
+from backend.storage import LocalStorage
 
 
 class GameNotFound(Exception):
+    pass
+
+
+class GameCorrupt(Exception):
     pass
 
 
@@ -71,6 +77,7 @@ class Game:
     illegal_model_move_count: int = 0
     clock_override: str | None = field(default=None, repr=False)
     clock: Callable[[], float] = field(default=monotonic, repr=False)
+    on_change: Callable[["Game"], None] | None = field(default=None, repr=False)
     white_seconds: float = field(init=False)
     black_seconds: float = field(init=False)
     last_tick: float = field(init=False)
@@ -128,6 +135,7 @@ class Game:
         else:
             self.black_seconds += increment
         self._finish_board_outcome()
+        self._changed()
 
     def _finish_board_outcome(self) -> None:
         outcome = self.board.outcome(claim_draw=False)
@@ -154,12 +162,18 @@ class Game:
         self._charge_time()
         self._require_playing()
         self._finish("0-1" if color == "white" else "1-0", "resignation")
+        self._changed()
 
     def offer_draw(self, accepted: bool) -> None:
         self._charge_time()
         self._require_playing()
         if accepted:
             self._finish("1/2-1/2", "draw_agreement")
+            self._changed()
+
+    def _changed(self) -> None:
+        if self.on_change is not None:
+            self.on_change(self)
 
     def _require_playing(self) -> None:
         if self.status != "playing":
@@ -189,15 +203,72 @@ class Game:
                 else "1-0" if winner == chess.WHITE else "0-1"
             )
             self._finish(result, "timeout")
+        self._changed()
 
 
 class GameStore:
-    def __init__(self, clock: Callable[[], float] = monotonic) -> None:
+    def __init__(self, clock: Callable[[], float] = monotonic, path: str | None = None,
+                 wall_clock: Callable[[], float] | None = None) -> None:
         self._games: dict[str, Game] = {}
+        self._corrupt_games: set[str] = set()
         self._lock = RLock()
         self._clock = clock
         self._model_calls: dict[str, tuple[object, float, float, int]] = {}
         self._draw_calls: dict[str, tuple[object, float, float]] = {}
+        self._storage = LocalStorage(path, wall_clock) if path is not None and wall_clock is not None else LocalStorage(path) if path is not None else None
+        if self._storage is not None:
+            self._restore_games()
+
+    def _save_game(self, game: Game) -> None:
+        if self._storage is None:
+            return
+        self._storage.save(game.id, {
+            "root_fen": game.board.root().fen(),
+            "moves": [move.uci() for move in game.board.move_stack],
+            "status": game.status, "result": game.result,
+            "termination_reason": game.termination_reason,
+            "time_control": game.time_control,
+            "model_provider": game.model_provider, "model_color": game.model_color,
+            "context_level": game.context_level,
+            "illegal_model_move_count": game.illegal_model_move_count,
+            "white_seconds": game.white_seconds, "black_seconds": game.black_seconds,
+            "clock_override": game.clock_override,
+        })
+
+    def _restore_games(self) -> None:
+        assert self._storage is not None
+        for game_id, raw_payload, saved_wall in self._storage.load_all():
+            try:
+                payload = json.loads(raw_payload)
+                self._restore_game(game_id, payload, saved_wall)
+            except (ValueError, KeyError, TypeError, IndexError):
+                self._corrupt_games.add(game_id)
+
+    def _restore_game(self, game_id: str, payload: dict, saved_wall: float) -> None:
+            assert self._storage is not None
+            board = chess.Board(payload["root_fen"])
+            for uci in payload["moves"]:
+                board.push_uci(uci)
+            game = Game(id=game_id, board=board, time_control=payload["time_control"],
+                        model_provider=payload["model_provider"], model_color=payload["model_color"],
+                        context_level=payload["context_level"], clock=self._clock,
+                        illegal_model_move_count=payload["illegal_model_move_count"])
+            game.status = payload["status"]
+            game.result = payload["result"]
+            game.termination_reason = payload["termination_reason"]
+            game.white_seconds = payload["white_seconds"]
+            game.black_seconds = payload["black_seconds"]
+            game.clock_override = payload["clock_override"]
+            game.last_tick = self._clock()
+            if game.status == "playing":
+                downtime = max(0.0, self._storage.wall_clock() - saved_wall)
+                game.last_tick -= downtime
+                game._charge_time()
+                game.clock_override = None
+                game.last_tick = self._clock()
+            self._games[game_id] = game
+            game.on_change = self._save_game
+            self._save_game(game)
 
     def create(
         self, time_control: str = "10+5", model_provider: str | None = None,
@@ -210,6 +281,7 @@ class GameStore:
                 context_level=context_level,
             )
             self._games[game.id] = game
+            game.on_change = self._save_game
             return game.snapshot()
 
     def get(self, game_id: str) -> dict:
@@ -242,6 +314,7 @@ class GameStore:
             budget = thinking_budget(remaining)
             token = object()
             self._model_calls[game_id] = (token, game.last_tick, budget, game.illegal_model_move_count)
+            game._changed()
             extra = {}
             if game.context_level != "minimal":
                 extra["pgn"] = game.pgn()
@@ -286,8 +359,10 @@ class GameStore:
                     game.submit_move(uci, charge_time=False)
                 except IllegalMove:
                     game.illegal_model_move_count += 1
+                    game._changed()
                     if game.illegal_model_move_count - call[3] >= MAX_ILLEGAL_ATTEMPTS:
                         game._finish("0-1" if game.model_color == "white" else "1-0", "model_forfeit")
+                        game._changed()
                         return game.snapshot()
                     raise
                 return game.snapshot()
@@ -319,8 +394,10 @@ class GameStore:
             if valid:
                 return self.finish_model_turn(game_id, uci, token)
             game.illegal_model_move_count += 1
+            game._changed()
             if game.illegal_model_move_count - call[3] >= MAX_ILLEGAL_ATTEMPTS:
                 game._finish("0-1" if game.model_color == "white" else "1-0", "model_forfeit")
+                game._changed()
                 self._model_calls.pop(game_id, None)
                 return game.snapshot()
             return None
@@ -367,6 +444,7 @@ class GameStore:
                 raise ModelTurnConflict("Provider action already in progress")
             game.clock_override = game.model_color
             game.last_tick = game.clock()
+            game._changed()
             remaining = game.white_seconds if game.model_color == "white" else game.black_seconds
             budget = thinking_budget(remaining)
             token = object()
@@ -401,10 +479,12 @@ class GameStore:
                     game._finish("1/2-1/2", "draw_agreement")
                 game.clock_override = None
                 game.last_tick = game.clock()
+                game._changed()
                 return game.snapshot()
             finally:
                 game.clock_override = None
                 game.last_tick = game.clock()
+                game._changed()
                 self._draw_calls.pop(game_id, None)
 
     def abort_draw_decision(self, game_id: str, token: object) -> None:
@@ -415,9 +495,12 @@ class GameStore:
                 game._charge_time()
                 game.clock_override = None
                 game.last_tick = game.clock()
+                game._changed()
                 self._draw_calls.pop(game_id, None)
 
     def _find(self, game_id: str) -> Game:
+        if game_id in self._corrupt_games:
+            raise GameCorrupt("Stored game is unavailable")
         try:
             return self._games[game_id]
         except KeyError as exc:

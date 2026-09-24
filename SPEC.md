@@ -1,5 +1,13 @@
 # Multi-Model Chess Arena
 
+## Current milestone — Phase 10 local game persistence
+
+The default API process stores each authoritative game in a local SQLite file at `CHESS_DB_PATH` or `.data/chess-arena.sqlite3` relative to its working directory. `GameStore()` without a path remains ephemeral for isolated tests. A saved record contains the game ID, initial board position and UCI move stack, status, result, termination reason, time control, model provider/color, context level, actual illegal-attempt count, both exact clock values, and the active clock at the save point. No provider credentials, prompt text, raw provider output, or engine analysis are stored. Each state mutation and clock charge is committed atomically before its API response; a new process using the same path can retrieve the same game ID and continue it. Completed games retain frozen clocks.
+
+On restart, the store charges the nonnegative wall-clock interval since the last save to the saved active clock, clamps it at zero, and applies normal timeout and insufficient-material rules. It then resumes the board side's clock from the recovery instant. An in-flight model turn or draw decision is abandoned; its elapsed downtime is charged to the saved model clock, no proposed move or draw answer is applied, and its call guard is cleared. A wall clock that moved backward contributes zero elapsed time. Client snapshots continue to use the authoritative monotonic clock while the process runs. Corrupt or unknown records are never silently replaced with a new game; retrieval fails safely.
+
+---
+
 ## Current milestone — Phase 9 bound-model draw decisions
 
 For an unbound game, `POST /games/{id}/draw-offer` keeps the existing `{"accepted": boolean}` contract. For a bound game, the client sends `{}`; supplying `accepted` is rejected with 422. The server snapshots the same allowlisted live context as a move turn and asks its bound provider to return exactly `ACCEPT` or `DECLINE`. The provider cannot initiate an offer. A valid `ACCEPT` returns 200 with a stopped `draw_agreement` game; `DECLINE` returns 200 with the unchanged board and playing state. Draw decisions do not change the illegal-move count and never award an increment.
