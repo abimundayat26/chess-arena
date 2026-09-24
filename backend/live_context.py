@@ -15,12 +15,14 @@ class ModelPosition:
     castling_rights: str | None = None
     fullmove_number: int | None = None
     previous_illegal_move: str | None = None
+    draw_offer: bool = False
 
 
 
 def _prompt(position: ModelPosition) -> str:
     prompt = (
-        "Choose one legal chess move. Reply with only its UCI notation, no prose.\n"
+        ("Decide whether to accept the human's draw offer. Reply with exactly ACCEPT or DECLINE, no prose.\n"
+         if position.draw_offer else "Choose one legal chess move. Reply with only its UCI notation, no prose.\n") +
         f"FEN: {position.fen}\n"
         f"Side to move: {position.side_to_move}\n"
         f"Legal UCI moves: {', '.join(position.legal_moves)}"

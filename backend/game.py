@@ -69,6 +69,7 @@ class Game:
     model_color: str | None = None
     context_level: str = "minimal"
     illegal_model_move_count: int = 0
+    clock_override: str | None = field(default=None, repr=False)
     clock: Callable[[], float] = field(default=monotonic, repr=False)
     white_seconds: float = field(init=False)
     black_seconds: float = field(init=False)
@@ -99,9 +100,7 @@ class Game:
             "illegal_model_move_count": self.illegal_model_move_count,
             "white_clock_ms": ceil(self.white_seconds * 1000),
             "black_clock_ms": ceil(self.black_seconds * 1000),
-            "active_clock": (
-                "white" if self.board.turn == chess.WHITE else "black"
-            ) if self.status == "playing" else None,
+            "active_clock": (self.clock_override or ("white" if self.board.turn == chess.WHITE else "black")) if self.status == "playing" else None,
         }
 
     def pgn(self) -> str:
@@ -177,14 +176,14 @@ class Game:
         now = self.clock()
         elapsed = max(0.0, now - self.last_tick)
         self.last_tick = now
-        white = self.board.turn == chess.WHITE
+        white = self.clock_override == "white" if self.clock_override else self.board.turn == chess.WHITE
         remaining = (self.white_seconds if white else self.black_seconds) - elapsed
         if white:
             self.white_seconds = max(0.0, remaining)
         else:
             self.black_seconds = max(0.0, remaining)
         if remaining <= 0:
-            winner = not self.board.turn
+            winner = not white
             result = (
                 "1/2-1/2" if self.board.has_insufficient_material(winner)
                 else "1-0" if winner == chess.WHITE else "0-1"
@@ -198,6 +197,7 @@ class GameStore:
         self._lock = RLock()
         self._clock = clock
         self._model_calls: dict[str, tuple[object, float, float, int]] = {}
+        self._draw_calls: dict[str, tuple[object, float, float]] = {}
 
     def create(
         self, time_control: str = "10+5", model_provider: str | None = None,
@@ -221,6 +221,8 @@ class GameStore:
             game = self._find(game_id)
             game._charge_time()
             game._require_playing()
+            if game_id in self._draw_calls:
+                raise ModelTurnConflict("Draw decision already in progress")
             if game.model_color == ("white" if game.board.turn else "black"):
                 raise ModelTurnConflict("Model turn must use the model-turn endpoint")
             game.submit_move(uci)
@@ -234,7 +236,7 @@ class GameStore:
             color = "white" if game.board.turn else "black"
             if game.model_provider is None or game.model_color != color:
                 raise ModelTurnConflict("Not the model's turn")
-            if game_id in self._model_calls:
+            if game_id in self._model_calls or game_id in self._draw_calls:
                 raise ModelTurnConflict("Model turn already in progress")
             remaining = game.white_seconds if game.board.turn else game.black_seconds
             budget = thinking_budget(remaining)
@@ -353,6 +355,67 @@ class GameStore:
             game = self._find(game_id)
             game.offer_draw(accepted)
             return game.snapshot()
+
+    def begin_draw_decision(self, game_id: str) -> tuple[str, ModelPosition, float, object]:
+        with self._lock:
+            game = self._find(game_id)
+            game._charge_time()
+            game._require_playing()
+            if game.model_provider is None or game.model_color is None:
+                raise ModelTurnConflict("Game has no bound model")
+            if game_id in self._model_calls or game_id in self._draw_calls:
+                raise ModelTurnConflict("Provider action already in progress")
+            game.clock_override = game.model_color
+            game.last_tick = game.clock()
+            remaining = game.white_seconds if game.model_color == "white" else game.black_seconds
+            budget = thinking_budget(remaining)
+            token = object()
+            self._draw_calls[game_id] = (token, game.last_tick, budget)
+            extra = {}
+            if game.context_level != "minimal":
+                extra["pgn"] = game.pgn()
+                extra["time_remaining_ms"] = ceil(remaining * 1000)
+            if game.context_level == "structured_position":
+                extra["pieces"] = tuple((chess.square_name(square), piece.symbol()) for square, piece in sorted(game.board.piece_map().items()))
+                extra["material_counts"] = tuple((name, len(game.board.pieces(kind, chess.WHITE)), len(game.board.pieces(kind, chess.BLACK))) for name, kind in (("pawn", chess.PAWN), ("knight", chess.KNIGHT), ("bishop", chess.BISHOP), ("rook", chess.ROOK), ("queen", chess.QUEEN)))
+                extra["castling_rights"] = game.board.castling_xfen()
+                extra["fullmove_number"] = game.board.fullmove_number
+            position = ModelPosition(game.board.fen(), "white" if game.board.turn else "black", tuple(move.uci() for move in game.board.legal_moves), draw_offer=True, **extra)
+            return game.model_provider, position, budget, token
+
+    def finish_draw_decision(self, game_id: str, accepted: bool | None, token: object) -> dict:
+        with self._lock:
+            call = self._draw_calls.get(game_id)
+            if call is None or call[0] is not token:
+                raise ModelTurnConflict("Game changed during draw decision")
+            game = self._find(game_id)
+            try:
+                game._charge_time()
+                if game.status == "game-over" and game.termination_reason == "timeout":
+                    return game.snapshot()
+                if game.status != "playing":
+                    raise ModelTurnConflict("Game changed during draw decision")
+                if game.last_tick - call[1] >= call[2] or accepted is None:
+                    raise IllegalMove("Draw decision failed")
+                if accepted:
+                    game._finish("1/2-1/2", "draw_agreement")
+                game.clock_override = None
+                game.last_tick = game.clock()
+                return game.snapshot()
+            finally:
+                game.clock_override = None
+                game.last_tick = game.clock()
+                self._draw_calls.pop(game_id, None)
+
+    def abort_draw_decision(self, game_id: str, token: object) -> None:
+        with self._lock:
+            call = self._draw_calls.get(game_id)
+            if call is not None and call[0] is token:
+                game = self._find(game_id)
+                game._charge_time()
+                game.clock_override = None
+                game.last_tick = game.clock()
+                self._draw_calls.pop(game_id, None)
 
     def _find(self, game_id: str) -> Game:
         try:

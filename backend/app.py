@@ -30,7 +30,8 @@ class ResignRequest(BaseModel):
 
 
 class DrawOfferRequest(BaseModel):
-    accepted: bool
+    model_config = ConfigDict(extra="allow")
+    accepted: bool | None = None
 
 
 class GameState(BaseModel):
@@ -149,11 +150,44 @@ def create_app(
     @app.post("/games/{game_id}/draw-offer", response_model=GameState)
     async def offer_draw(game_id: str, request: DrawOfferRequest):
         try:
-            return games.offer_draw(game_id, request.accepted)
+            current = games.get(game_id)
+            if current["game_status"] == "game-over":
+                raise HTTPException(status_code=409, detail="Game is over")
+            if current["model_provider"] is None:
+                if request.accepted is None or request.model_extra:
+                    raise HTTPException(status_code=422, detail="Unbound draw offer requires accepted")
+                return games.offer_draw(game_id, request.accepted)
+            if request.accepted is not None or request.model_extra:
+                raise HTTPException(status_code=422, detail="Bound draw decision accepts no client decision")
+            provider_name, position, budget, token = games.begin_draw_decision(game_id)
         except GameNotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except GameOver as exc:
+        except (GameOver, ModelTurnConflict) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        provider_task = asyncio.create_task(available[provider_name].adapter.choose_draw(position))
+        try:
+            done, pending = await asyncio.wait({provider_task}, timeout=budget)
+            if pending:
+                provider_task.cancel()
+                provider_task.add_done_callback(lambda task: task.exception() if not task.cancelled() else None)
+                await asyncio.sleep(0)
+                decision = None
+            else:
+                try:
+                    answer = provider_task.result()
+                    decision = answer if type(answer) is bool else None
+                except (Exception, asyncio.CancelledError):
+                    decision = None
+        except asyncio.CancelledError:
+            provider_task.cancel()
+            games.abort_draw_decision(game_id, token)
+            raise
+        try:
+            return games.finish_draw_decision(game_id, decision, token)
+        except ModelTurnConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except IllegalMove:
+            raise HTTPException(status_code=502, detail="Model draw decision failed") from None
 
     return app
 

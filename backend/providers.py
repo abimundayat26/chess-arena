@@ -1,6 +1,6 @@
 """Provider-independent, single-turn chess model adapters."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from backend.live_context import ModelPosition, _prompt
 import os
@@ -13,6 +13,7 @@ import httpx
 
 class ChessModel(Protocol):
     async def choose_move(self, position: ModelPosition) -> str: ...
+    async def choose_draw(self, position: ModelPosition) -> bool: ...
 
 
 class ProviderError(Exception):
@@ -56,6 +57,14 @@ class HttpModel:
         if not isinstance(value, str) or not value.strip():
             raise ProviderError("Model provider returned no move")
         return value.strip()
+
+    async def choose_draw(self, position: ModelPosition) -> bool:
+        answer = await self.choose_move(replace(position, draw_offer=True))
+        if answer == "ACCEPT":
+            return True
+        if answer == "DECLINE":
+            return False
+        raise ProviderError("Model provider returned invalid draw decision")
 
 
 class OpenAIAdapter(HttpModel):

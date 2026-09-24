@@ -184,7 +184,7 @@ def test_game_creation_rejects_client_credentials_and_provider_url():
             assert "secret-key" not in response.text
 
 
-@pytest.mark.parametrize("action", ["draw", "resign", "timeout"])
+@pytest.mark.parametrize("action", ["resign", "timeout"])
 def test_pending_model_result_cannot_change_terminal_game(action):
     clock = Clock()
     started, release = Event(), Event()
@@ -202,9 +202,7 @@ def test_pending_model_result_cannot_change_terminal_game(action):
             try:
                 assert started.wait(2)
                 assert client.post(f"/games/{game_id}/model-turn").status_code == 409
-                if action == "draw":
-                    terminal = client.post(f"/games/{game_id}/draw-offer", json={"accepted": True}).json()
-                elif action == "resign":
+                if action == "resign":
                     terminal = client.post(f"/games/{game_id}/resign", json={"color": "white"}).json()
                 else:
                     clock.advance(180)
@@ -258,7 +256,7 @@ def test_terminal_game_rejects_model_turn_without_calling_provider():
     model = FakeModel(clock)
     with client_for(model, clock) as client:
         game_id = model_to_move(client)
-        terminal = client.post(f"/games/{game_id}/draw-offer", json={"accepted": True}).json()
+        terminal = client.post(f"/games/{game_id}/resign", json={"color": "white"}).json()
         assert terminal["game_status"] == "game-over"
         assert client.post(f"/games/{game_id}/model-turn").status_code == 409
         assert model.calls == 0
