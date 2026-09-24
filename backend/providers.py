@@ -96,6 +96,8 @@ class AnthropicAdapter(HttpModel):
             {"model": self._model_id, "max_tokens": 64, "messages": [{"role": "user", "content": _prompt(position)}]},
         )
         try:
+            if data.get("stop_reason") not in (None, "end_turn", "stop_sequence"):
+                raise ProviderError("Model provider returned no move")
             for part in data["content"]:
                 if part.get("type") == "text":
                     return self._text(part.get("text"))
@@ -112,7 +114,10 @@ class GeminiAdapter(HttpModel):
             {"contents": [{"parts": [{"text": _prompt(position)}]}]},
         )
         try:
-            return self._text(data["candidates"][0]["content"]["parts"][0]["text"])
+            candidate = data["candidates"][0]
+            if candidate.get("finishReason") not in (None, "STOP"):
+                raise ProviderError("Model provider returned no move")
+            return self._text(candidate["content"]["parts"][0]["text"])
         except (KeyError, IndexError, TypeError, AttributeError) as exc:
             raise ProviderError("Model provider returned no move") from exc
 
@@ -125,7 +130,10 @@ class OpenRouterAdapter(HttpModel):
             {"model": self._model_id, "messages": [{"role": "user", "content": _prompt(position)}], "max_tokens": 64},
         )
         try:
-            return self._text(data["choices"][0]["message"]["content"])
+            choice = data["choices"][0]
+            if choice.get("finish_reason") not in (None, "stop"):
+                raise ProviderError("Model provider returned no move")
+            return self._text(choice["message"]["content"])
         except (KeyError, IndexError, TypeError, AttributeError) as exc:
             raise ProviderError("Model provider returned no move") from exc
 

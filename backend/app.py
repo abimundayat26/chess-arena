@@ -4,13 +4,16 @@ import asyncio
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from backend.game import GameNotFound, GameOver, GameStore, IllegalMove, ModelTurnConflict
 from backend.providers import ProviderBinding, configured_providers
 
 
 class CreateGameRequest(BaseModel):
+    # Inspect unknown fields in the endpoint so rejection never echoes a supplied key.
+    model_config = ConfigDict(extra="allow")
+
     time_control: Literal["3+0", "3+2", "5+0", "5+3", "10+0", "10+5", "15+10", "20+0"] = "10+5"
     model_provider: Literal["openai", "anthropic", "gemini", "openrouter"] | None = None
     model_color: Literal["white", "black"] | None = None
@@ -57,6 +60,8 @@ def create_app(
     async def create_game(request: CreateGameRequest | None = None):
         if request is None:
             return games.create()
+        if request.model_extra:
+            raise HTTPException(status_code=422, detail="Unsupported game creation field")
         if (request.model_provider is None) != (request.model_color is None):
             raise HTTPException(status_code=422, detail="Model provider and color must be supplied together")
         if request.model_provider and request.model_provider not in available:

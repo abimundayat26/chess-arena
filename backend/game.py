@@ -227,7 +227,7 @@ class GameStore:
                     return game.snapshot()
                 if game.status != "playing" or game.model_color != ("white" if game.board.turn else "black"):
                     raise ModelTurnConflict("Game changed during model turn")
-                if uci is None:
+                if not isinstance(uci, str):
                     raise IllegalMove("Model provider failed")
                 game.submit_move(uci)
                 return game.snapshot()
