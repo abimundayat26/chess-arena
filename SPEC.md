@@ -1,6 +1,18 @@
 # Multi-Model Chess Arena
 
-## Current milestone — Phase 3 production clocks (September 2026)
+## Current milestone — Phase 4 model provider architecture
+
+Phase 4 adds one server-initiated model turn while retaining the reviewed Phase 3 chess and clock authority. The approved providers are OpenAI, Anthropic, Gemini, and OpenRouter. Each has a server-side adapter behind one `choose_move(position)` interface. The shared position contains only FEN, side to move, and legal UCI moves. Adapters request one UCI move; they do not receive engine evaluations or a configurable context level. Provider API keys and model IDs come only from server environment variables (`CHESS_<PROVIDER>_API_KEY` and `CHESS_<PROVIDER>_MODEL`). The server never accepts credentials or arbitrary provider URLs from a client, and never returns or logs keys or raw provider errors. The HTTP transport uses the providers' documented REST APIs via `httpx`; no provider SDK is needed.
+
+`POST /games` may include `model_provider` (`openai`, `anthropic`, `gemini`, or `openrouter`) and `model_color` (`white` or `black`); both must be supplied together. Creation returns 503 if that provider is not configured. Existing requests without these fields still create unbound games for the current mock frontend. The response includes `model_provider` and `model_color` (or null), but no credentials. A bound game's model side cannot be moved through `/moves`.
+
+`POST /games/{game_id}/model-turn` runs exactly one turn for the bound model when it is that side's turn. Only one model call per game may be in flight. The server snapshots the position, awaits the provider, charges all elapsed time to the model's Phase 3 clock, and validates the returned UCI move with python-chess before applying it and awarding the normal increment. If time expires during the call, the response is the authoritative timeout game state and no move is applied. A provider failure returns 502 with a generic message; a malformed or illegal move returns 502 with a generic message. In either case the board stays unchanged, the model clock is charged, and there is no automatic retry. Wrong-turn, concurrent, stale, terminal, or unbound calls return 409; unknown games return 404. Provider decisions never bypass backend legality or clock checks. The frontend may continue its existing mock opponent path for unbound games; wiring selection to real providers is outside this one-turn backend milestone.
+
+Phase 5 context levels, Phase 6 adaptive timing, Phase 7 retry and illegal-move metrics, Stockfish, persistence, authentication, and unrelated design changes remain out of scope.
+
+---
+
+## Prior milestone — Phase 3 production clocks (September 2026)
 
 The reviewed Phase 2 API remains authoritative for chess state. Phase 3 makes it authoritative for both clocks and timeout results. Game creation accepts one of `3+0`, `3+2`, `5+0`, `5+3`, `10+0`, `10+5`, `15+10`, or `20+0` (default `10+5` for existing clients). API responses include the time control, each side's remaining milliseconds, and the active clock. The server measures elapsed time with a monotonic source on every game read or action, including rejected moves and mocked opponent turns. A legal move consumes the mover's elapsed time and adds its increment; an illegal move earns no increment. At zero, the game ends with `termination_reason = "timeout"` and a win for the other side, except when that side cannot possibly mate, in which case the result is a draw. Later moves and game-ending actions return 409. Finished clocks stop. The frontend displays a local projection between server responses, then replaces it with authoritative clock values on every response and periodic refresh. `chess.js` remains local move feedback only. Model APIs, Stockfish, persistence, and authentication remain out of scope.
 

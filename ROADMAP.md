@@ -99,7 +99,7 @@ Authoritative state returned
 
 # Phase 3 — Production Clock System
 
-Status: **ACTIVE**. The authoritative contract is in `SPEC.md`.
+Status: **COMPLETED AND REVIEWED**. The authoritative contract is in `SPEC.md`.
 
 Implement real timed chess.
 
@@ -139,6 +139,8 @@ just like:
 ---
 
 # Phase 4 — Model Provider Architecture
+
+Status: **ACTIVE**. The one-turn implementation contract is in `SPEC.md`.
 
 Create a provider-independent interface.
 

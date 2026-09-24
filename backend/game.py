@@ -10,6 +10,8 @@ from uuid import uuid4
 import chess
 import chess.pgn
 
+from backend.providers import ModelPosition
+
 
 class GameNotFound(Exception):
     pass
@@ -20,6 +22,10 @@ class GameOver(Exception):
 
 
 class IllegalMove(Exception):
+    pass
+
+
+class ModelTurnConflict(Exception):
     pass
 
 
@@ -43,6 +49,8 @@ class Game:
     result: str = "*"
     termination_reason: str | None = None
     time_control: str = "10+5"
+    model_provider: str | None = None
+    model_color: str | None = None
     clock: Callable[[], float] = field(default=monotonic, repr=False)
     white_seconds: float = field(init=False)
     black_seconds: float = field(init=False)
@@ -73,6 +81,8 @@ class Game:
             "result": self.result,
             "termination_reason": self.termination_reason,
             "time_control": self.time_control,
+            "model_provider": self.model_provider,
+            "model_color": self.model_color,
             "white_clock_ms": ceil(self.white_seconds * 1000),
             "black_clock_ms": ceil(self.black_seconds * 1000),
             "active_clock": (
@@ -165,10 +175,17 @@ class GameStore:
         self._games: dict[str, Game] = {}
         self._lock = RLock()
         self._clock = clock
+        self._model_calls: set[str] = set()
 
-    def create(self, time_control: str = "10+5") -> dict:
+    def create(
+        self, time_control: str = "10+5", model_provider: str | None = None,
+        model_color: str | None = None,
+    ) -> dict:
         with self._lock:
-            game = Game(time_control=time_control, clock=self._clock)
+            game = Game(
+                time_control=time_control, clock=self._clock,
+                model_provider=model_provider, model_color=model_color,
+            )
             self._games[game.id] = game
             return game.snapshot()
 
@@ -179,8 +196,48 @@ class GameStore:
     def move(self, game_id: str, uci: str) -> dict:
         with self._lock:
             game = self._find(game_id)
+            game._charge_time()
+            game._require_playing()
+            if game.model_color == ("white" if game.board.turn else "black"):
+                raise ModelTurnConflict("Model turn must use the model-turn endpoint")
             game.submit_move(uci)
             return game.snapshot()
+
+    def begin_model_turn(self, game_id: str) -> tuple[str, ModelPosition]:
+        with self._lock:
+            game = self._find(game_id)
+            game._charge_time()
+            game._require_playing()
+            color = "white" if game.board.turn else "black"
+            if game.model_provider is None or game.model_color != color:
+                raise ModelTurnConflict("Not the model's turn")
+            if game_id in self._model_calls:
+                raise ModelTurnConflict("Model turn already in progress")
+            self._model_calls.add(game_id)
+            return game.model_provider, ModelPosition(
+                game.board.fen(), color, tuple(move.uci() for move in game.board.legal_moves)
+            )
+
+    def finish_model_turn(self, game_id: str, uci: str | None) -> dict:
+        with self._lock:
+            try:
+                game = self._find(game_id)
+                game._charge_time()
+                if game.status == "game-over" and game.termination_reason == "timeout":
+                    return game.snapshot()
+                if game.status != "playing" or game.model_color != ("white" if game.board.turn else "black"):
+                    raise ModelTurnConflict("Game changed during model turn")
+                if uci is None:
+                    raise IllegalMove("Model provider failed")
+                game.submit_move(uci)
+                return game.snapshot()
+            finally:
+                self._model_calls.discard(game_id)
+
+    def abort_model_turn(self, game_id: str) -> None:
+        with self._lock:
+            self._find(game_id)._charge_time()
+            self._model_calls.discard(game_id)
 
     def resign(self, game_id: str, color: str) -> dict:
         with self._lock:

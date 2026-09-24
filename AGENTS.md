@@ -36,10 +36,10 @@ Current requirements in `SPEC.md` take priority over future ideas in `ROADMAP.md
 The project is currently in:
 
 ```text
-Phase 3 production clocks (Phase 1 UI + reviewed Phase 2 chess API)
+Phase 4 model provider architecture (reviewed Phase 3 chess and clocks)
 ```
 
-The frontend and backend remain in scope only for the Phase 3 contract in `SPEC.md`. Agents must not implement future phases unless explicitly instructed.
+The backend remains in scope for the Phase 4 contract in `SPEC.md`. Agents must not implement future phases unless explicitly instructed.
 
 The fact that functionality appears in `ROADMAP.md` does NOT authorize its implementation.
 
