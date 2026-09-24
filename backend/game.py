@@ -41,6 +41,21 @@ TIME_CONTROLS = {
 }
 
 
+def thinking_budget(remaining_seconds: float) -> float:
+    """Maximum provider time for this turn, capped by the authoritative clock."""
+    if remaining_seconds >= 600:
+        tier = 15
+    elif remaining_seconds >= 300:
+        tier = 10
+    elif remaining_seconds >= 120:
+        tier = 6
+    elif remaining_seconds >= 30:
+        tier = 3
+    else:
+        tier = 1
+    return min(remaining_seconds, tier)
+
+
 @dataclass
 class Game:
     id: str = field(default_factory=lambda: str(uuid4()))
@@ -66,16 +81,10 @@ class Game:
 
     def snapshot(self) -> dict:
         self._charge_time()
-        pgn_game = chess.pgn.Game.from_board(self.board)
-        pgn_game.headers["Result"] = self.result
         return {
             "game_id": self.id,
             "fen": self.board.fen(),
-            "pgn": pgn_game.accept(
-                chess.pgn.StringExporter(
-                    headers="FEN" in pgn_game.headers, variations=False, comments=False
-                )
-            ),
+            "pgn": self.pgn(),
             "side_to_move": "white" if self.board.turn == chess.WHITE else "black",
             "legal_moves": [move.uci() for move in self.board.legal_moves] if self.status == "playing" else [],
             "game_status": self.status,
@@ -92,8 +101,16 @@ class Game:
             ) if self.status == "playing" else None,
         }
 
-    def submit_move(self, uci: str) -> None:
-        self._charge_time()
+    def pgn(self) -> str:
+        pgn_game = chess.pgn.Game.from_board(self.board)
+        pgn_game.headers["Result"] = self.result
+        return pgn_game.accept(chess.pgn.StringExporter(
+            headers="FEN" in pgn_game.headers, variations=False, comments=False
+        ))
+
+    def submit_move(self, uci: str, *, charge_time: bool = True) -> None:
+        if charge_time:
+            self._charge_time()
         self._require_playing()
         try:
             move = chess.Move.from_uci(uci)
@@ -177,7 +194,7 @@ class GameStore:
         self._games: dict[str, Game] = {}
         self._lock = RLock()
         self._clock = clock
-        self._model_calls: set[str] = set()
+        self._model_calls: dict[str, tuple[object, float, float]] = {}
 
     def create(
         self, time_control: str = "10+5", model_provider: str | None = None,
@@ -206,7 +223,7 @@ class GameStore:
             game.submit_move(uci)
             return game.snapshot()
 
-    def begin_model_turn(self, game_id: str) -> tuple[str, ModelPosition]:
+    def begin_model_turn(self, game_id: str) -> tuple[str, ModelPosition, float, object]:
         with self._lock:
             game = self._find(game_id)
             game._charge_time()
@@ -216,10 +233,13 @@ class GameStore:
                 raise ModelTurnConflict("Not the model's turn")
             if game_id in self._model_calls:
                 raise ModelTurnConflict("Model turn already in progress")
-            self._model_calls.add(game_id)
+            remaining = game.white_seconds if game.board.turn else game.black_seconds
+            budget = thinking_budget(remaining)
+            token = object()
+            self._model_calls[game_id] = (token, game.last_tick, budget)
             extra = {}
             if game.context_level != "minimal":
-                extra["pgn"] = game.snapshot()["pgn"]
+                extra["pgn"] = game.pgn()
                 remaining = game.white_seconds if game.board.turn else game.black_seconds
                 extra["time_remaining_ms"] = ceil(remaining * 1000)
             if game.context_level == "structured_position":
@@ -236,12 +256,16 @@ class GameStore:
                 )
                 extra["castling_rights"] = game.board.castling_xfen()
                 extra["fullmove_number"] = game.board.fullmove_number
-            return game.model_provider, ModelPosition(
+            position = ModelPosition(
                 game.board.fen(), color, tuple(move.uci() for move in game.board.legal_moves), **extra
             )
+            return game.model_provider, position, budget, token
 
-    def finish_model_turn(self, game_id: str, uci: str | None) -> dict:
+    def finish_model_turn(self, game_id: str, uci: str | None, token: object) -> dict:
         with self._lock:
+            call = self._model_calls.get(game_id)
+            if call is None or call[0] is not token:
+                raise ModelTurnConflict("Game changed during model turn")
             try:
                 game = self._find(game_id)
                 game._charge_time()
@@ -249,17 +273,21 @@ class GameStore:
                     return game.snapshot()
                 if game.status != "playing" or game.model_color != ("white" if game.board.turn else "black"):
                     raise ModelTurnConflict("Game changed during model turn")
+                if game.last_tick - call[1] >= call[2]:
+                    raise IllegalMove("Model thinking budget expired")
                 if not isinstance(uci, str):
                     raise IllegalMove("Model provider failed")
-                game.submit_move(uci)
+                game.submit_move(uci, charge_time=False)
                 return game.snapshot()
             finally:
-                self._model_calls.discard(game_id)
+                self._model_calls.pop(game_id, None)
 
-    def abort_model_turn(self, game_id: str) -> None:
+    def abort_model_turn(self, game_id: str, token: object) -> None:
         with self._lock:
-            self._find(game_id)._charge_time()
-            self._model_calls.discard(game_id)
+            call = self._model_calls.get(game_id)
+            if call is not None and call[0] is token:
+                self._find(game_id)._charge_time()
+                self._model_calls.pop(game_id, None)
 
     def resign(self, game_id: str, color: str) -> dict:
         with self._lock:

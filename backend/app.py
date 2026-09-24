@@ -73,21 +73,21 @@ def create_app(
     @app.post("/games/{game_id}/model-turn", response_model=GameState)
     async def model_turn(game_id: str):
         try:
-            provider_name, position = games.begin_model_turn(game_id)
+            provider_name, position, budget, token = games.begin_model_turn(game_id)
         except GameNotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except (GameOver, ModelTurnConflict) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         try:
-            uci = await available[provider_name].adapter.choose_move(position)
+            uci = await asyncio.wait_for(available[provider_name].adapter.choose_move(position), timeout=budget)
         except asyncio.CancelledError:
-            games.abort_model_turn(game_id)
+            games.abort_model_turn(game_id, token)
             raise
         except Exception:
             # Never expose upstream response bodies, credentials, or raw exceptions.
             uci = None
         try:
-            return games.finish_model_turn(game_id, uci)
+            return games.finish_model_turn(game_id, uci, token)
         except ModelTurnConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except IllegalMove:
