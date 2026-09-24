@@ -1,6 +1,7 @@
 """Context levels use only authoritative history and board facts."""
 
 import json
+from dataclasses import FrozenInstanceError
 
 import httpx
 import pytest
@@ -9,6 +10,7 @@ from fastapi.testclient import TestClient
 from backend.app import create_app
 from backend.game import GameStore
 from backend.providers import AnthropicAdapter, GeminiAdapter, OpenAIAdapter, OpenRouterAdapter, ProviderBinding
+from backend.live_context import ModelPosition
 
 
 class Clock:
@@ -95,3 +97,41 @@ def test_intercepted_http_prompt_contains_only_selected_context(adapter_type, re
     assert "server-secret" not in body
     for forbidden in ("evaluation", "suggested move", "best move", "principal variation", "stockfish"):
         assert forbidden not in body
+
+
+def test_live_context_cannot_gain_analysis_fields():
+    position = ModelPosition("fen", "white", ("e2e4",))
+    with pytest.raises((FrozenInstanceError, AttributeError, TypeError)):
+        position.evaluation = "+3.2"
+    with TestClient(create_app(GameStore(clock=Clock()), providers={})) as client:
+        for field in ("evaluation", "candidate_moves", "principal_variation", "tablebase", "opening_advice"):
+            assert client.post("/games", json={field: "secret hint"}).status_code == 422
+
+
+@pytest.mark.parametrize("adapter_type,wrap", [
+    (OpenAIAdapter, lambda move: {"status": "completed", "output": [{"type": "message", "content": [{"type": "output_text", "text": move}]}]}),
+    (AnthropicAdapter, lambda move: {"content": [{"type": "text", "text": move}]}),
+    (GeminiAdapter, lambda move: {"candidates": [{"content": {"parts": [{"text": move}]}}]}),
+    (OpenRouterAdapter, lambda move: {"choices": [{"message": {"content": move}}]}),
+])
+def test_retry_http_payload_has_only_live_context(adapter_type, wrap):
+    requests = []
+
+    def respond(request):
+        requests.append(json.loads(request.content))
+        return httpx.Response(200, json=wrap("e2e4" if len(requests) == 1 else "e7e5"))
+
+    adapter = adapter_type("secret-key", "server-model", httpx.MockTransport(respond))
+    with TestClient(create_app(GameStore(Clock()), {"openai": ProviderBinding("server-model", adapter)})) as client:
+        game_id = client.post("/games", json={"model_provider": "openai", "model_color": "black", "context_level": "structured_position"}).json()["game_id"]
+        client.post(f"/games/{game_id}/moves", json={"uci": "e2e4"})
+        state = client.post(f"/games/{game_id}/model-turn").json()
+        assert state["illegal_model_move_count"] == 1
+    assert len(requests) == 2
+    first, retry = (json.dumps(request).lower() for request in requests)
+    assert "previous proposed move" not in first
+    assert "previous proposed move" in retry
+    for body in (first, retry):
+        assert "fen:" in body and "legal uci moves" in body
+        for forbidden in ("stockfish", "evaluation", "tablebase", "opening advice", "principal variation", "best move"):
+            assert forbidden not in body
