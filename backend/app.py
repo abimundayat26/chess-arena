@@ -1,6 +1,7 @@
 """HTTP API for authoritative chess, clocks, and one model turn."""
 
 import asyncio
+from dataclasses import replace
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException
@@ -45,6 +46,7 @@ class GameState(BaseModel):
     model_provider: str | None
     model_color: Literal["white", "black"] | None
     context_level: Literal["minimal", "game_context", "structured_position"]
+    illegal_model_move_count: int
     white_clock_ms: int
     black_clock_ms: int
     active_clock: Literal["white", "black"] | None
@@ -78,30 +80,39 @@ def create_app(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except (GameOver, ModelTurnConflict) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        provider_task = asyncio.create_task(available[provider_name].adapter.choose_move(position))
         try:
-            done, pending = await asyncio.wait({provider_task}, timeout=budget)
-            if pending:
-                provider_task.cancel()
-                # A provider that suppresses cancellation cannot turn a late result into a move.
-                provider_task.add_done_callback(
-                    lambda task: task.exception() if not task.cancelled() else None
-                )
-                await asyncio.sleep(0)
-                uci = None
-            else:
+            while True:
+                remaining = games.remaining_model_budget(game_id, token)
+                if remaining <= 0:
+                    return games.finish_model_turn(game_id, None, token)
+                provider_task = asyncio.create_task(available[provider_name].adapter.choose_move(position))
                 try:
-                    uci = provider_task.result()
-                except (Exception, asyncio.CancelledError):
-                    # Never expose upstream response bodies, credentials, or raw exceptions.
-                    uci = None
+                    done, pending = await asyncio.wait({provider_task}, timeout=remaining)
+                    if pending:
+                        provider_task.cancel()
+                        provider_task.add_done_callback(
+                            lambda task: task.exception() if not task.cancelled() else None
+                        )
+                        await asyncio.sleep(0)
+                        return games.finish_model_turn(game_id, None, token)
+                    try:
+                        uci = provider_task.result()
+                    except (Exception, asyncio.CancelledError):
+                        return games.finish_model_turn(game_id, None, token)
+                except asyncio.CancelledError:
+                    provider_task.cancel()
+                    raise
+                if not isinstance(uci, str):
+                    return games.finish_model_turn(game_id, None, token)
+                result = games.model_attempt(game_id, uci, token)
+                if result is not None:
+                    return result
+                position = replace(position, previous_illegal_move=uci[:32])
         except asyncio.CancelledError:
-            provider_task.cancel()
             games.abort_model_turn(game_id, token)
             raise
-        try:
-            return games.finish_model_turn(game_id, uci, token)
         except ModelTurnConflict as exc:
+            games.abort_model_turn(game_id, token)
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except IllegalMove:
             raise HTTPException(status_code=502, detail="Model turn failed") from None

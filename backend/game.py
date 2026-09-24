@@ -39,6 +39,7 @@ TIME_CONTROLS = {
     "15+10": (900, 10),
     "20+0": (1200, 0),
 }
+MAX_ILLEGAL_ATTEMPTS = 5
 
 
 def thinking_budget(remaining_seconds: float) -> float:
@@ -67,6 +68,7 @@ class Game:
     model_provider: str | None = None
     model_color: str | None = None
     context_level: str = "minimal"
+    illegal_model_move_count: int = 0
     clock: Callable[[], float] = field(default=monotonic, repr=False)
     white_seconds: float = field(init=False)
     black_seconds: float = field(init=False)
@@ -94,6 +96,7 @@ class Game:
             "model_provider": self.model_provider,
             "model_color": self.model_color,
             "context_level": self.context_level,
+            "illegal_model_move_count": self.illegal_model_move_count,
             "white_clock_ms": ceil(self.white_seconds * 1000),
             "black_clock_ms": ceil(self.black_seconds * 1000),
             "active_clock": (
@@ -194,7 +197,7 @@ class GameStore:
         self._games: dict[str, Game] = {}
         self._lock = RLock()
         self._clock = clock
-        self._model_calls: dict[str, tuple[object, float, float]] = {}
+        self._model_calls: dict[str, tuple[object, float, float, int]] = {}
 
     def create(
         self, time_control: str = "10+5", model_provider: str | None = None,
@@ -236,7 +239,7 @@ class GameStore:
             remaining = game.white_seconds if game.board.turn else game.black_seconds
             budget = thinking_budget(remaining)
             token = object()
-            self._model_calls[game_id] = (token, game.last_tick, budget)
+            self._model_calls[game_id] = (token, game.last_tick, budget, game.illegal_model_move_count)
             extra = {}
             if game.context_level != "minimal":
                 extra["pgn"] = game.pgn()
@@ -277,10 +280,60 @@ class GameStore:
                     raise IllegalMove("Model thinking budget expired")
                 if not isinstance(uci, str):
                     raise IllegalMove("Model provider failed")
-                game.submit_move(uci, charge_time=False)
+                try:
+                    game.submit_move(uci, charge_time=False)
+                except IllegalMove:
+                    game.illegal_model_move_count += 1
+                    if game.illegal_model_move_count - call[3] >= MAX_ILLEGAL_ATTEMPTS:
+                        game._finish("0-1" if game.model_color == "white" else "1-0", "model_forfeit")
+                        return game.snapshot()
+                    raise
                 return game.snapshot()
             finally:
                 self._model_calls.pop(game_id, None)
+
+    def model_attempt(self, game_id: str, uci: str, token: object) -> dict | None:
+        """Return a final state, or None when another invalid attempt is allowed."""
+        with self._lock:
+            call = self._model_calls.get(game_id)
+            if call is None or call[0] is not token:
+                raise ModelTurnConflict("Game changed during model turn")
+            game = self._find(game_id)
+            game._charge_time()
+            if game.status == "game-over" and game.termination_reason == "timeout":
+                self._model_calls.pop(game_id, None)
+                return game.snapshot()
+            if game.status != "playing":
+                self._model_calls.pop(game_id, None)
+                raise ModelTurnConflict("Game changed during model turn")
+            if game.last_tick - call[1] >= call[2]:
+                self._model_calls.pop(game_id, None)
+                raise IllegalMove("Model thinking budget expired")
+            try:
+                move = chess.Move.from_uci(uci)
+                valid = move in game.board.legal_moves
+            except ValueError:
+                valid = False
+            if valid:
+                return self.finish_model_turn(game_id, uci, token)
+            game.illegal_model_move_count += 1
+            if game.illegal_model_move_count - call[3] >= MAX_ILLEGAL_ATTEMPTS:
+                game._finish("0-1" if game.model_color == "white" else "1-0", "model_forfeit")
+                self._model_calls.pop(game_id, None)
+                return game.snapshot()
+            return None
+
+    def remaining_model_budget(self, game_id: str, token: object) -> float:
+        with self._lock:
+            call = self._model_calls.get(game_id)
+            if call is None or call[0] is not token:
+                raise ModelTurnConflict("Game changed during model turn")
+            game = self._find(game_id)
+            game._charge_time()
+            if game.status == "game-over" and game.termination_reason != "timeout":
+                raise ModelTurnConflict("Game changed during model turn")
+            return max(0.0, min(call[2] - (game.last_tick - call[1]),
+                                game.white_seconds if game.board.turn else game.black_seconds))
 
     def abort_model_turn(self, game_id: str, token: object) -> None:
         with self._lock:

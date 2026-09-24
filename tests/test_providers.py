@@ -133,7 +133,7 @@ def test_illegal_model_output_keeps_board_and_charges_clock(result):
         assert response.status_code == 502
         state = client.get(f"/games/{game_id}").json()
         assert state["pgn"] == "1. e4 *"
-        assert state["black_clock_ms"] == 177000
+        assert state["black_clock_ms"] == 174000
         assert state["active_clock"] == "black"
 
 

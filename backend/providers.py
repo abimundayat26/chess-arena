@@ -18,6 +18,7 @@ class ModelPosition:
     material_counts: tuple[tuple[str, int, int], ...] | None = None
     castling_rights: str | None = None
     fullmove_number: int | None = None
+    previous_illegal_move: str | None = None
 
 
 class ChessModel(Protocol):
@@ -52,6 +53,8 @@ def _prompt(position: ModelPosition) -> str:
         )
         prompt += f"\nCastling rights: {position.castling_rights}"
         prompt += f"\nFull move number: {position.fullmove_number}"
+    if position.previous_illegal_move is not None:
+        prompt += f"\nThe previous proposed move {position.previous_illegal_move!r} was illegal. Choose exactly one move from the listed legal UCI moves."
     return prompt
 
 

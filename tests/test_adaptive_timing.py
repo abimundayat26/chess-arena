@@ -93,7 +93,7 @@ def test_illegal_move_after_latency_has_no_increment():
         game_id = bound(client)
         assert client.post(f"/games/{game_id}/model-turn").status_code == 502
         state = client.get(f"/games/{game_id}").json()
-        assert state["black_clock_ms"] == 178000
+        assert state["black_clock_ms"] == 174000
         assert state["pgn"] == "1. e4 *"
 
 

@@ -1,5 +1,15 @@
 # Multi-Model Chess Arena
 
+## Current milestone — Phase 7 illegal model moves
+
+One `POST /games/{id}/model-turn` request permits at most five invalid UCI proposals (five total attempts). A malformed, unparsable, wrong-side, impossible promotion, or otherwise illegal proposed move increments the persisted-in-game `illegal_model_move_count` exactly once; this count is returned in every game snapshot, including completed games. The next provider request receives the same authoritative position plus the previous invalid proposal and an instruction to select a listed legal UCI move. Provider exceptions or empty responses are service failures, not invalid chess proposals, and return generic 502 without increasing the count.
+
+All attempts share the original adaptive thinking budget; it is never reset on retry. Every attempt and retry consumes the active model clock. A legal proposal strictly before the deadline is applied once and earns one increment. At the deadline with time remaining, return generic 502 with no board change or increment. At clock zero, timeout takes precedence over all proposals and failure states. On the fifth invalid proposal before either deadline, end the game by `model_forfeit`, award the human side the win, stop clocks, and return 200 with the final state. No illegal proposal is ever applied or awarded an increment. Concurrent, stale, and terminal requests retain their existing conflict behavior.
+
+Phase 8 onward remains out of scope for this milestone.
+
+---
+
 ## Current milestone — Phases 5 and 6 model context and adaptive thinking time
 
 `POST /games` accepts optional `context_level`: `minimal` (default), `game_context`, or `structured_position`. It is fixed for the game and returned as `context_level` in every game state. Unknown levels or extra creation fields return 422; `model_provider` and `model_color` remain a required pair for bound games. The same default applies to unbound games. Clients cannot supply credentials, model IDs, provider URLs, prompt text, or a custom context configuration.

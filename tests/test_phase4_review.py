@@ -170,7 +170,7 @@ def test_invalid_model_results_are_502_and_leave_board_unchanged(result):
         assert response.json() == {"detail": "Model turn failed"}
         state = client.get(f"/games/{game_id}").json()
         assert state["pgn"] == "1. e4 *"
-        assert state["black_clock_ms"] == 176000
+        assert state["black_clock_ms"] == (172000 if isinstance(result, str) else 176000)
         assert state["active_clock"] == "black"
 
 
@@ -232,7 +232,7 @@ def test_success_adds_one_increment_after_provider_latency():
         assert model.calls == 1
 
 
-def test_failed_turn_has_no_increment_or_automatic_retry():
+def test_failed_turn_retries_within_original_budget():
     clock = Clock()
 
     class SequenceModel:
@@ -240,20 +240,16 @@ def test_failed_turn_has_no_increment_or_automatic_retry():
 
         async def choose_move(self, position):
             self.calls += 1
-            clock.advance(3)
+            clock.advance(1)
             return "not-a-move" if self.calls == 1 else "e7e5"
 
     model = SequenceModel()
     with client_for(model, clock) as client:
         game_id = model_to_move(client)
-        assert client.post(f"/games/{game_id}/model-turn").status_code == 502
-        assert model.calls == 1
-        failed = client.get(f"/games/{game_id}").json()
-        assert failed["black_clock_ms"] == 177000
-        assert failed["pgn"] == "1. e4 *"
         retried = client.post(f"/games/{game_id}/model-turn").json()
         assert model.calls == 2
-        assert retried["black_clock_ms"] == 176000
+        assert retried["black_clock_ms"] == 180000
+        assert retried["illegal_model_move_count"] == 1
         assert retried["pgn"] == "1. e4 e5 *"
 
 
