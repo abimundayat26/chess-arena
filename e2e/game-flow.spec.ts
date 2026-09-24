@@ -405,6 +405,42 @@ test("timeout from authoritative refresh opens Game Over", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Resign" })).toHaveCount(0)
 })
 
+test("a move rejected by timeout reconciles to the server result", async ({ page }) => {
+  const gameId = await startGame(page)
+  let timedOut = false
+  await page.route(`**/api/games/${gameId}/moves`, async (route) => {
+    timedOut = true
+    await route.fulfill({
+      status: 409,
+      contentType: "application/json",
+      body: '{"detail":"Game is over"}',
+    })
+  })
+  await page.route(`**/api/games/${gameId}`, async (route) => {
+    const response = await route.fetch()
+    const state = await response.json()
+    await route.fulfill({
+      response,
+      json: timedOut
+        ? {
+            ...state,
+            white_clock_ms: 0,
+            active_clock: null,
+            game_status: "game-over",
+            result: "0-1",
+            termination_reason: "timeout",
+            legal_moves: [],
+          }
+        : state,
+    })
+  })
+  await page.getByRole("button", { name: /^e2 white p$/ }).click()
+  await page.getByRole("button", { name: /^e4$/ }).click()
+  await expect(page.getByText("Timeout")).toBeVisible()
+  await expect(page.getByText("0–1").first()).toBeVisible()
+  await expect(page.getByRole("button", { name: "Resign" })).toHaveCount(0)
+})
+
 test("rejected stale move reconciles both clocks from the API", async ({ page }) => {
   const gameId = await startGame(page)
   await backendMove(page, gameId, "e2e4")
