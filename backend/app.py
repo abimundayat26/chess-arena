@@ -78,14 +78,27 @@ def create_app(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except (GameOver, ModelTurnConflict) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        provider_task = asyncio.create_task(available[provider_name].adapter.choose_move(position))
         try:
-            uci = await asyncio.wait_for(available[provider_name].adapter.choose_move(position), timeout=budget)
+            done, pending = await asyncio.wait({provider_task}, timeout=budget)
+            if pending:
+                provider_task.cancel()
+                # A provider that suppresses cancellation cannot turn a late result into a move.
+                provider_task.add_done_callback(
+                    lambda task: task.exception() if not task.cancelled() else None
+                )
+                await asyncio.sleep(0)
+                uci = None
+            else:
+                try:
+                    uci = provider_task.result()
+                except (Exception, asyncio.CancelledError):
+                    # Never expose upstream response bodies, credentials, or raw exceptions.
+                    uci = None
         except asyncio.CancelledError:
+            provider_task.cancel()
             games.abort_model_turn(game_id, token)
             raise
-        except Exception:
-            # Never expose upstream response bodies, credentials, or raw exceptions.
-            uci = None
         try:
             return games.finish_model_turn(game_id, uci, token)
         except ModelTurnConflict as exc:
