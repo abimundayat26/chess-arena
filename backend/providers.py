@@ -1,24 +1,14 @@
 """Provider-independent, single-turn chess model adapters."""
 
 from dataclasses import dataclass
+
+from backend.live_context import ModelPosition, _prompt
 import os
 from typing import Protocol
 
 import httpx
 
 
-@dataclass(frozen=True)
-class ModelPosition:
-    fen: str
-    side_to_move: str
-    legal_moves: tuple[str, ...]
-    pgn: str | None = None
-    time_remaining_ms: int | None = None
-    pieces: tuple[tuple[str, str], ...] | None = None
-    material_counts: tuple[tuple[str, int, int], ...] | None = None
-    castling_rights: str | None = None
-    fullmove_number: int | None = None
-    previous_illegal_move: str | None = None
 
 
 class ChessModel(Protocol):
@@ -35,27 +25,6 @@ class ProviderBinding:
     adapter: ChessModel
 
 
-def _prompt(position: ModelPosition) -> str:
-    prompt = (
-        "Choose one legal chess move. Reply with only its UCI notation, no prose.\n"
-        f"FEN: {position.fen}\n"
-        f"Side to move: {position.side_to_move}\n"
-        f"Legal UCI moves: {', '.join(position.legal_moves)}"
-    )
-    if position.pgn is not None:
-        prompt += f"\nPGN: {position.pgn}\nTime remaining (ms): {position.time_remaining_ms}"
-    if position.pieces is not None:
-        prompt += "\nPieces (square=piece): " + ", ".join(
-            f"{square}={piece}" for square, piece in position.pieces
-        )
-        prompt += "\nMaterial counts (piece: white, black): " + ", ".join(
-            f"{name}: {white}, {black}" for name, white, black in position.material_counts or ()
-        )
-        prompt += f"\nCastling rights: {position.castling_rights}"
-        prompt += f"\nFull move number: {position.fullmove_number}"
-    if position.previous_illegal_move is not None:
-        prompt += f"\nThe previous proposed move {position.previous_illegal_move!r} was illegal. Choose exactly one move from the listed legal UCI moves."
-    return prompt
 
 
 class HttpModel:

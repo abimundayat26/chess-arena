@@ -1,5 +1,11 @@
 # Multi-Model Chess Arena
 
+## Current milestone — Phase 8 live-game information boundary
+
+The only data sent to a live model move request is the frozen, server-derived `ModelPosition` allowlist: FEN, side to move, legal UCI moves, the selected Phase 5 context fields, and Phase 7 invalid-move feedback. The provider adapters share one live prompt builder. No client field can add prompt text, an evaluation, candidate ranking, principal variation, tablebase answer, opening advice, or engine-derived hint. Legal UCI moves are chess-rule legality, not recommendations. Future analysis code must remain outside the live prompt and provider adapter modules, and cannot be imported or called from the live-game path. API game snapshots likewise expose no evaluation, recommendation, tablebase, or opening field. Tests must intercept all four provider transports and assert that the outgoing request contains only approved live context, including on retry.
+
+---
+
 ## Current milestone — Phase 7 illegal model moves
 
 One `POST /games/{id}/model-turn` request permits at most five invalid UCI proposals (five total attempts). A malformed, unparsable, wrong-side, impossible promotion, or otherwise illegal proposed move increments the persisted-in-game `illegal_model_move_count` exactly once; this count is returned in every game snapshot, including completed games. The next provider request receives the same authoritative position plus the previous invalid proposal and an instruction to select a listed legal UCI move. Provider exceptions or empty responses are service failures, not invalid chess proposals, and return generic 502 without increasing the count.
