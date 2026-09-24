@@ -1,15 +1,15 @@
 "use client"
 
-import { MODEL_OPTIONS } from "@/lib/chess/mock-data"
 import type { ModelOption } from "@/lib/chess/types"
 import { cn } from "@/lib/utils"
 
 interface ModelSelectorProps {
   value: ModelOption
   onChange: (model: ModelOption) => void
+  models: ModelOption[]
 }
 
-export function ModelSelector({ value, onChange }: ModelSelectorProps) {
+export function ModelSelector({ value, onChange, models }: ModelSelectorProps) {
   return (
     <div>
       <h3 className="font-heading text-sm font-semibold text-foreground">Opponent</h3>
@@ -17,7 +17,7 @@ export function ModelSelector({ value, onChange }: ModelSelectorProps) {
         Choose the language model you will play against.
       </p>
       <div className="mt-3 grid grid-cols-2 gap-2">
-        {MODEL_OPTIONS.map((model) => {
+        {models.map((model) => {
           const selected = model.id === value.id
           return (
             <button
@@ -33,7 +33,7 @@ export function ModelSelector({ value, onChange }: ModelSelectorProps) {
               )}
             >
               <span className="text-sm font-medium text-foreground">{model.name}</span>
-              <span className="text-xs text-muted-foreground">{model.provider}</span>
+              <span className="text-xs text-muted-foreground">{model.backendProvider ? model.provider : `${model.provider} · Demo`}</span>
             </button>
           )
         })}

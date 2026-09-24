@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Swords } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -12,6 +12,8 @@ import {
   TIME_CONTROLS,
 } from "@/lib/chess/mock-data"
 import type { MatchConfig } from "@/lib/chess/types"
+import { gameApi } from "@/lib/chess/api"
+import type { ModelOption } from "@/lib/chess/types"
 
 import { ColorSelector } from "./color-selector"
 import { DifficultySelector } from "./difficulty-selector"
@@ -24,7 +26,18 @@ interface GameSetupProps {
 }
 
 export function GameSetup({ onStart, starting = false }: GameSetupProps) {
-  const [model, setModel] = useState(MODEL_OPTIONS[1])
+  const [model, setModel] = useState(MODEL_OPTIONS[0])
+  const [models, setModels] = useState<ModelOption[]>(MODEL_OPTIONS)
+  useEffect(() => {
+    let active = true
+    void gameApi.providers().then((configured) => {
+      if (!active) return
+      setModels([...MODEL_OPTIONS, ...configured.map(({ provider, model: name }) => ({
+        id: `configured-${provider}`, name, provider: provider[0].toUpperCase() + provider.slice(1), backendProvider: provider,
+      }))])
+    }).catch(() => {})
+    return () => { active = false }
+  }, [])
   const [colorPreference, setColorPreference] =
     useState<MatchConfig["colorPreference"]>("white")
   const [timeControl, setTimeControl] = useState(TIME_CONTROLS[5])
@@ -50,7 +63,10 @@ export function GameSetup({ onStart, starting = false }: GameSetupProps) {
 
       <Card className="gap-0 border-border p-6">
         <div className="flex flex-col gap-6">
-          <ModelSelector value={model} onChange={setModel} />
+          <ModelSelector value={model} onChange={(next) => {
+            setModel(next)
+            if (next.backendProvider && difficulty === "custom") setDifficulty("standard")
+          }} models={models} />
           <Separator />
           <ColorSelector
             value={colorPreference}
@@ -64,6 +80,7 @@ export function GameSetup({ onStart, starting = false }: GameSetupProps) {
             onChange={setDifficulty}
             context={difficultyContext}
             onContextChange={setDifficultyContext}
+            realModel={Boolean(model.backendProvider)}
           />
         </div>
 

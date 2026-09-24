@@ -7,10 +7,7 @@ import type {
 } from "./types"
 
 export const MODEL_OPTIONS: ModelOption[] = [
-  { id: "gpt-5.6", name: "GPT-5.6", provider: "OpenAI" },
   { id: "claude-sonnet", name: "Claude Sonnet", provider: "Anthropic" },
-  { id: "gemini-pro", name: "Gemini Pro", provider: "Google" },
-  { id: "custom-model", name: "Custom Model", provider: "Bring your own" },
 ]
 
 export const TIME_CONTROLS: TimeControlOption[] = [

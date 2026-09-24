@@ -12,6 +12,7 @@ interface DifficultySelectorProps {
   onChange: (value: Difficulty) => void
   context: DifficultyContextConfig
   onContextChange: (context: DifficultyContextConfig) => void
+  realModel?: boolean
 }
 
 export function DifficultySelector({
@@ -19,12 +20,13 @@ export function DifficultySelector({
   onChange,
   context,
   onContextChange,
+  realModel = false,
 }: DifficultySelectorProps) {
   return (
     <div>
-      <h3 className="font-heading text-sm font-semibold text-foreground">AI difficulty</h3>
+      <h3 className="font-heading text-sm font-semibold text-foreground">{realModel ? "Model context" : "AI difficulty"}</h3>
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {DIFFICULTIES.map((option) => {
+        {(realModel ? DIFFICULTIES.filter((option) => option.id !== "custom") : DIFFICULTIES).map((option) => {
           const selected = option.id === value
           return (
             <button
@@ -39,14 +41,14 @@ export function DifficultySelector({
                   : "border-border bg-card hover:border-foreground/30",
               )}
             >
-              <span className="text-sm font-medium text-foreground">{option.label}</span>
-              <span className="text-xs text-muted-foreground">{option.description}</span>
+              <span className="text-sm font-medium text-foreground">{realModel ? ({ casual: "Minimal", standard: "Game context", strong: "Structured" } as Record<string, string>)[option.id] : option.label}</span>
+              <span className="text-xs text-muted-foreground">{realModel ? ({ casual: "Board and legal moves", standard: "Adds game history and time", strong: "Adds piece and material facts" } as Record<string, string>)[option.id] : option.description}</span>
             </button>
           )
         })}
       </div>
 
-      {value === "custom" && (
+      {value === "custom" && !realModel && (
         <div className="mt-4 rounded-sm border border-dashed border-border bg-muted/40 p-4">
           <p className="mb-3 text-xs text-muted-foreground">
             Visual mock controls only — not connected to a model in Phase 1.

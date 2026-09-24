@@ -20,7 +20,8 @@ interface GameControlsProps {
   disabled: boolean
   opponentName: string
   onResign: () => void
-  onOfferDraw: (accepted: boolean) => Promise<void>
+  onOfferDraw: (accepted?: boolean) => Promise<void>
+  realModel?: boolean
 }
 
 export function GameControls({
@@ -28,6 +29,7 @@ export function GameControls({
   opponentName,
   onResign,
   onOfferDraw,
+  realModel = false,
 }: GameControlsProps) {
   const drawTimer = useRef<number | undefined>(undefined)
   const [resignOpen, setResignOpen] = useState(false)
@@ -41,6 +43,10 @@ export function GameControls({
     if (disabled || offeringDraw) return
     setOfferingDraw(true)
     toast(`Draw offer sent to ${opponentName}...`)
+    if (realModel) {
+      void onOfferDraw().finally(() => setOfferingDraw(false))
+      return
+    }
     drawTimer.current = window.setTimeout(() => {
       const accepted = Math.random() < 0.35
       void onOfferDraw(accepted).then(() => setOfferingDraw(false))

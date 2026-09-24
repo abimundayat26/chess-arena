@@ -12,6 +12,7 @@ const TERMINATION_LABELS: Record<TerminationReason, string> = {
   variant_win: "Variant win",
   variant_loss: "Variant loss",
   variant_draw: "Variant draw",
+  model_forfeit: "Model failed to make a legal move",
 }
 
 export function GameSummary({ game }: { game: CompletedGame }) {

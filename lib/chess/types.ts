@@ -8,6 +8,7 @@ export interface ModelOption {
   id: string
   name: string
   provider: string
+  backendProvider?: "openai" | "anthropic" | "gemini" | "openrouter"
 }
 
 export interface TimeControlOption {
@@ -46,6 +47,7 @@ export type TerminationReason =
   | "variant_win"
   | "variant_loss"
   | "variant_draw"
+  | "model_forfeit"
 
 export type GameResultValue = "1-0" | "0-1" | "1/2-1/2"
 

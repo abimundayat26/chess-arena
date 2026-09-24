@@ -6,7 +6,6 @@ import { toast } from "sonner"
 
 import { useChessGame } from "@/hooks/use-chess-game"
 import { gameApi, type ServerGame } from "@/lib/chess/api"
-import { mockIllegalModelMoves } from "@/lib/chess/mock-data"
 import type {
   GameOverInfo,
   MatchConfig,
@@ -64,7 +63,6 @@ export function ActiveGame({
   const busyRef = useRef(false)
   const [syncFailed, setSyncFailed] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [illegalModelMoves] = useState(() => mockIllegalModelMoves())
   const hasReportedRef = useRef(false)
 
   const refresh = useCallback(async () => {
@@ -87,7 +85,7 @@ export function ActiveGame({
   }, [state.game_id, applyState])
 
   const runAction = useCallback(
-    async (action: () => Promise<ServerGame>): Promise<boolean> => {
+    async (action: () => Promise<ServerGame>, genericError?: string): Promise<boolean> => {
       if (busyRef.current || syncFailed || state.game_status === "game-over")
         return false
       busyRef.current = true
@@ -97,8 +95,7 @@ export function ActiveGame({
         applyState(await action())
         return true
       } catch (cause) {
-        const message =
-          cause instanceof Error ? cause.message : "Game request failed"
+        const message = genericError ?? (cause instanceof Error ? cause.message : "Game request failed")
         // A response can be lost after the server commits the action. Always fetch its current state.
         try {
           applyState(await gameApi.get(state.game_id))
@@ -142,11 +139,15 @@ export function ActiveGame({
       return
     const timeout = window.setTimeout(
       () => {
-        const moves = state.legal_moves
-        const uci = moves[Math.floor(Math.random() * moves.length)]
-        if (uci) void runAction(() => gameApi.move(state.game_id, uci))
+        if (state.model_provider) {
+          void runAction(() => gameApi.modelTurn(state.game_id), "Model turn failed. Retry to continue.")
+        } else {
+          const moves = state.legal_moves
+          const uci = moves[Math.floor(Math.random() * moves.length)]
+          if (uci) void runAction(() => gameApi.move(state.game_id, uci))
+        }
       },
-      900 + Math.random() * 700
+      state.model_provider ? 0 : 900 + Math.random() * 700
     )
     return () => window.clearTimeout(timeout)
   }, [state, humanColor, busy, syncFailed, error, runAction])
@@ -191,16 +192,16 @@ export function ActiveGame({
         pgn: state.pgn,
         san: game.sanHistory,
         fen: state.fen,
-        illegalModelMoves,
+        illegalModelMoves: state.illegal_model_move_count,
       }
     )
-  }, [state, game.sanHistory, illegalModelMoves, onGameOver])
+  }, [state, game.sanHistory, onGameOver])
 
-  async function offerDraw(accepted: boolean) {
-    const succeeded = await runAction(() =>
-      gameApi.offerDraw(state.game_id, accepted)
-    )
-    if (succeeded) toast(accepted ? "Draw accepted" : "Draw declined")
+  async function offerDraw(accepted?: boolean) {
+    const succeeded = state.model_provider
+      ? await runAction(() => gameApi.modelDraw(state.game_id), "Draw decision failed. You can try again.")
+      : await runAction(() => gameApi.offerDraw(state.game_id, Boolean(accepted)))
+    if (succeeded) toast(state.model_provider ? "Draw decision received" : accepted ? "Draw accepted" : "Draw declined")
   }
 
   const modelColor: PlayerColor = humanColor === "white" ? "black" : "white"
@@ -210,7 +211,7 @@ export function ActiveGame({
   const isThinking =
     state.game_status === "playing" &&
     state.side_to_move === modelColor &&
-    !syncFailed
+    !syncFailed && !error
   const boardDisabled =
     busy || syncFailed || game.isGameOver || game.turn !== humanColor
 
@@ -243,7 +244,7 @@ export function ActiveGame({
         <MoveList sanHistory={game.sanHistory} />
         {busy && (
           <p role="status" className="text-sm text-muted-foreground">
-            Updating game…
+            {state.model_provider && isThinking ? "Model thinking…" : "Updating game…"}
           </p>
         )}
         {error && (
@@ -263,7 +264,7 @@ export function ActiveGame({
         )}
         {!syncFailed && error && state.side_to_move === modelColor && (
           <Button variant="outline" onClick={() => setError(null)}>
-            Continue game
+            {state.model_provider ? "Retry model turn" : "Continue game"}
           </Button>
         )}
         <GameControls
@@ -273,6 +274,7 @@ export function ActiveGame({
             void runAction(() => gameApi.resign(state.game_id, humanColor))
           }
           onOfferDraw={offerDraw}
+          realModel={Boolean(state.model_provider)}
         />
       </div>
     </div>

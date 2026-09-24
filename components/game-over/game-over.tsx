@@ -43,9 +43,13 @@ export function GameOver({
         <CardContent className="flex flex-col gap-6 pt-2">
           <GameResult game={game} />
           <GameSummary game={game} />
-          <AccuracyBar game={game} />
-          <MoveReview san={game.san} />
-          <PostGameExplanation san={game.san} />
+          {!game.config.model.backendProvider && (
+            <>
+              <AccuracyBar game={game} />
+              <MoveReview san={game.san} />
+              <PostGameExplanation san={game.san} />
+            </>
+          )}
 
           {startError && (
             <p role="alert" className="text-sm text-accent">

@@ -13,6 +13,15 @@ export interface ServerGame {
   white_clock_ms: number
   black_clock_ms: number
   active_clock: PlayerColor | null
+  model_provider: string | null
+  model_color: PlayerColor | null
+  context_level: "minimal" | "game_context" | "structured_position"
+  illegal_model_move_count: number
+}
+
+export interface ConfiguredProvider {
+  provider: "openai" | "anthropic" | "gemini" | "openrouter"
+  model: string
 }
 
 export class GameApiError extends Error {
@@ -55,7 +64,16 @@ async function request(
 }
 
 export const gameApi = {
-  create: (timeControl: string) => request("/games", "POST", { time_control: timeControl }),
+  providers: async (): Promise<ConfiguredProvider[]> => {
+    const response = await fetch("/api/providers", { cache: "no-store" })
+    if (!response.ok) throw new GameApiError("Could not load providers", response.status)
+    return response.json() as Promise<ConfiguredProvider[]>
+  },
+  create: (timeControl: string, modelProvider?: ConfiguredProvider["provider"], modelColor?: PlayerColor, contextLevel?: ServerGame["context_level"]) =>
+    request("/games", "POST", {
+      time_control: timeControl,
+      ...(modelProvider ? { model_provider: modelProvider, model_color: modelColor, context_level: contextLevel } : {}),
+    }),
   get: (id: string) => request(`/games/${encodeURIComponent(id)}`),
   move: (id: string, uci: string) =>
     request(`/games/${encodeURIComponent(id)}/moves`, "POST", { uci }),
@@ -65,4 +83,6 @@ export const gameApi = {
     request(`/games/${encodeURIComponent(id)}/draw-offer`, "POST", {
       accepted,
     }),
+  modelTurn: (id: string) => request(`/games/${encodeURIComponent(id)}/model-turn`, "POST"),
+  modelDraw: (id: string) => request(`/games/${encodeURIComponent(id)}/draw-offer`, "POST", {}),
 }

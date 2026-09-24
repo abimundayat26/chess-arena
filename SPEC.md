@@ -1,5 +1,13 @@
 # Multi-Model Chess Arena
 
+## Current milestone — frontend provider hookup
+
+`GET /providers` returns only configured provider names and their server-side model display IDs; it never returns keys or accepts client credentials. Setup always offers the existing unbound demo opponent and additionally lists configured providers. Selecting a real provider creates a bound game with the opposite model color and a server-supported context level. The real setup context choices map to `minimal`, `game_context`, and `structured_position`; client reasoning-effort and deadline overrides are not sent. The server still chooses the provider's actual model ID and adaptive deadline.
+
+For a bound game, the frontend calls `/model-turn` whenever it is the model's turn and `/draw-offer` with `{}` when the human offers a draw. The backend owns retries, clock charges, draw decisions, and final results. The UI shows thinking while a request runs, offers a manual retry after a generic failure, reconciles a lost response by reading the game, and stops all play controls on a terminal state. The displayed illegal-attempt count comes from the server. Provider errors are shown as a generic action failure; keys, upstream bodies, and provider exception text never reach the browser. The unbound demo keeps its mocked opponent and draw behavior. Real-model Game Over screens omit mock accuracy, classifications, and explanations.
+
+---
+
 ## Current milestone — Phase 10 local game persistence
 
 The default API process stores each authoritative game in a local SQLite file at `CHESS_DB_PATH` or `.data/chess-arena.sqlite3` relative to its working directory. `GameStore()` without a path remains ephemeral for isolated tests. A saved record contains the game ID, initial board position and UCI move stack, status, result, termination reason, time control, model provider/color, context level, actual illegal-attempt count, both exact clock values, and the active clock at the save point. No provider credentials, prompt text, raw provider output, or engine analysis are stored. Each state mutation and clock charge is committed atomically before its API response; a new process using the same path can retrieve the same game ID and continue it. Completed games retain frozen clocks.

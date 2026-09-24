@@ -62,6 +62,10 @@ def create_app(
     games = store if store is not None else GameStore(path=os.environ.get("CHESS_DB_PATH", ".data/chess-arena.sqlite3"))
     available = providers if providers is not None else configured_providers()
 
+    @app.get("/providers")
+    async def list_providers():
+        return [{"provider": name, "model": binding.model_id} for name, binding in sorted(available.items())]
+
     @app.exception_handler(GameCorrupt)
     async def corrupt_game_handler(_request, _exc):
         from fastapi.responses import JSONResponse

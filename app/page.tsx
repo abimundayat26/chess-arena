@@ -40,17 +40,18 @@ export default function Home() {
     setStarting(true)
     setStartError(null)
     try {
-      const created = await gameApi.create(matchConfig.timeControl.id)
+      const color = resolveHumanColor(matchConfig.colorPreference)
+      const modelColor = color === "white" ? "black" : "white"
+      const contextLevel = matchConfig.difficulty === "casual" ? "minimal" : matchConfig.difficulty === "strong" ? "structured_position" : "game_context"
+      const created = await gameApi.create(matchConfig.timeControl.id, matchConfig.model.backendProvider, modelColor, contextLevel)
       const current = await gameApi.get(created.game_id)
       setConfig(matchConfig)
-      setHumanColor(resolveHumanColor(matchConfig.colorPreference))
+      setHumanColor(color)
       setCompletedGame(null)
       setInitialState(current)
       setScreen("playing")
     } catch (cause) {
-      setStartError(
-        cause instanceof Error ? cause.message : "Could not start the game"
-      )
+      setStartError(matchConfig.model.backendProvider ? "Could not start this model game. Check the provider configuration and try again." : cause instanceof Error ? cause.message : "Could not start the game")
     } finally {
       setStarting(false)
     }
