@@ -388,6 +388,10 @@ class GameStore:
         with self._lock:
             return self._find(game_id).owner_hash
 
+    def has_owner_hash(self, owner_hash: str) -> bool:
+        with self._lock:
+            return any(game.owner_hash == owner_hash for game in self._games.values())
+
     def active_games_for_owner(self, owner_hash: str) -> int:
         with self._lock:
             return sum(game.owner_hash == owner_hash and game.status == "playing" for game in self._games.values())
