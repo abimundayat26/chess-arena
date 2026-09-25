@@ -173,7 +173,7 @@ Its purpose is to provide lightweight frontend chess behavior including:
 
 - legal move generation
 - move validation
-- legal destination highlighting
+- legal destination validation
 - check detection
 - checkmate detection
 - stalemate detection
@@ -402,10 +402,10 @@ The board should support:
 - click source then destination
 - drag and drop
 - selected-square highlighting
-- legal destination indicators
+- legal move validation without destination markers
 - last-move highlighting
 
-When a user selects a piece, display only legal destination squares returned by the local chess state.
+When a user selects a piece, retain legal destinations in local chess state for click and drag validation without showing green destination markers.
 
 Example conceptual flow:
 
@@ -416,7 +416,7 @@ chess.js legal moves
         ↓
 [e5, g5, h4, d4, d2, e1, g1, h2]
         ↓
-UI highlights available destinations
+UI accepts only those destinations
 ```
 
 An illegal move should never update the displayed board state.
@@ -1003,7 +1003,7 @@ Phase 1 is complete when:
 8. Model and difficulty selectors exist.
 9. Chessboard supports click-to-move.
 10. Chessboard supports drag-and-drop.
-11. Legal destinations are shown in real time.
+11. Legal destinations are validated in real time without visible destination markers.
 12. Illegal human moves are rejected locally.
 13. Legal moves update the board.
 14. Move history reflects actual frontend moves.

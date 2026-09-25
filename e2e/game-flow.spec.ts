@@ -72,11 +72,7 @@ test("setup, local rejection, backend move, resignation, and new setup", async (
   const initial = await (await page.request.get(`/api/games/${gameId}`)).json()
   await authoritativeState(page, gameId)
   await page.getByRole("button", { name: /^e2 white p$/ }).click()
-  await expect(
-    page
-      .getByRole("button", { name: /^e4$/ })
-      .locator("span.bg-board-legal-dot")
-  ).toBeVisible()
+  await expect(page.locator(".bg-board-legal-dot, .border-board-legal-capture")).toHaveCount(0)
   await page.getByRole("button", { name: /^e5$/ }).click()
   expect(
     (await (await page.request.get(`/api/games/${gameId}`)).json()).fen
@@ -116,6 +112,12 @@ test("setup, local rejection, backend move, resignation, and new setup", async (
   expect(withoutRunningClock(await authoritativeState(page, gameId))).toEqual(withoutRunningClock(final))
   await expect(page.getByRole("button", { name: "Resign" })).toHaveCount(0)
   await page.getByRole("button", { name: "New setup" }).click()
+  await expect(page.getByRole("button", { name: "Start Game" })).toBeVisible()
+})
+
+test("Chess Arena title returns an active game to setup", async ({ page }) => {
+  await startGame(page)
+  await page.getByRole("button", { name: "Chess Arena — back to game setup" }).click()
   await expect(page.getByRole("button", { name: "Start Game" })).toBeVisible()
 })
 

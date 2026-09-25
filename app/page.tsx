@@ -91,11 +91,12 @@ export default function Home() {
     setConfig(null)
     setCompletedGame(null)
     setInitialState(null)
+    setStartError(null)
     setScreen("setup")
   }
 
   return (
-    <AppShell>
+    <AppShell onHome={handleNewSetup}>
       {screen === "setup" && (
         <>
           <GameSetup onStart={handleStart} starting={starting} />

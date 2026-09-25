@@ -136,8 +136,6 @@ export function ChessBoard({
               const isDark =
                 (FILES.indexOf(file) + RANKS.indexOf(rank)) % 2 === 1
               const isSelected = selected === square
-              const isLegalTarget = legalTargets.has(square)
-              const isCapture = isLegalTarget && Boolean(piece)
               const isLastMove =
                 game.lastMove &&
                 (game.lastMove.from === square || game.lastMove.to === square)
@@ -193,19 +191,6 @@ export function ChessBoard({
                         className="size-full drop-shadow-sm"
                       />
                     </div>
-                  )}
-
-                  {isLegalTarget && !isCapture && (
-                    <span
-                      className="absolute z-10 size-[26%] rounded-full bg-board-legal-dot"
-                      aria-hidden
-                    />
-                  )}
-                  {isLegalTarget && isCapture && (
-                    <span
-                      className="absolute inset-[8%] z-10 rounded-full border-[3px] border-board-legal-capture"
-                      aria-hidden
-                    />
                   )}
 
                   {file === files[0] && (
