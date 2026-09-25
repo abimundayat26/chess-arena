@@ -167,7 +167,7 @@ def create_app(
                 if request.accepted is None or request.model_extra:
                     raise HTTPException(status_code=422, detail="Unbound draw offer requires accepted")
                 return games.offer_draw(game_id, request.accepted)
-            if request.accepted is not None or request.model_extra:
+            if "accepted" in request.model_fields_set or request.model_extra:
                 raise HTTPException(status_code=422, detail="Bound draw decision accepts no client decision")
             provider_name, position, budget, token = games.begin_draw_decision(game_id)
         except GameNotFound as exc:

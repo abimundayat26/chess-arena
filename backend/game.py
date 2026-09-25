@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 import json
-from math import ceil
+from math import ceil, isfinite
 from threading import RLock
 from time import monotonic
 from typing import Callable
@@ -248,6 +248,24 @@ class GameStore:
 
     def _restore_game(self, game_id: str, payload: dict, saved_wall: float) -> None:
         assert self._storage is not None
+        status = payload["status"]
+        result = payload["result"]
+        reason = payload["termination_reason"]
+        if status == "playing":
+            if result != "*" or reason is not None:
+                raise ValueError("Invalid saved game result")
+        elif status == "game-over":
+            if result not in ("1-0", "0-1", "1/2-1/2") or not isinstance(reason, str) or not reason:
+                raise ValueError("Invalid saved game result")
+        else:
+            raise ValueError("Invalid saved game status")
+        count = payload["illegal_model_move_count"]
+        if type(count) is not int or count < 0:
+            raise ValueError("Invalid saved illegal-move count")
+        for color in ("white", "black"):
+            seconds = payload[f"{color}_seconds"]
+            if type(seconds) not in (int, float) or not isfinite(seconds) or seconds < 0:
+                raise ValueError("Invalid saved clock")
         board = chess.Board(payload["root_fen"])
         for uci in payload["moves"]:
             board.push_uci(uci)
