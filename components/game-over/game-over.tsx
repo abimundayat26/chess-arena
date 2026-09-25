@@ -8,6 +8,8 @@ import { AccuracyBar } from "@/components/game-over/accuracy-bar"
 import { MoveReview } from "@/components/game-over/move-review"
 import { PostGameExplanation } from "@/components/game-over/post-game-explanation"
 import type { CompletedGame } from "@/lib/chess/types"
+import { gameApi } from "@/lib/chess/api"
+import { useState } from "react"
 import { DownloadIcon, RotateCcwIcon, SettingsIcon } from "lucide-react"
 
 interface GameOverProps {
@@ -37,6 +39,15 @@ export function GameOver({
   starting = false,
   startError,
 }: GameOverProps) {
+  const [downloadError, setDownloadError] = useState(false)
+  async function handleDownload() {
+    try {
+      setDownloadError(false)
+      downloadPgn(await gameApi.pgn(game.gameId))
+    } catch {
+      setDownloadError(true)
+    }
+  }
   return (
     <div className="flex min-h-[calc(100vh-3.5rem)] items-center justify-center p-4 py-10">
       <Card className="w-full max-w-xl border-border/60">
@@ -56,6 +67,7 @@ export function GameOver({
               {startError}
             </p>
           )}
+          {downloadError && <p role="alert" className="text-sm text-accent">Could not download PGN. Try again.</p>}
           <div className="flex flex-col gap-2 sm:flex-row">
             <Button className="flex-1" disabled={starting} onClick={onRematch}>
               <RotateCcwIcon data-icon="inline-start" />
@@ -68,7 +80,7 @@ export function GameOver({
             <Button
               variant="outline"
               className="flex-1"
-              onClick={() => downloadPgn(game.pgn)}
+              onClick={() => void handleDownload()}
             >
               <DownloadIcon data-icon="inline-start" />
               Download PGN

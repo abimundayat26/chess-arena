@@ -60,6 +60,7 @@ export default function Home() {
   function handleGameOver(
     info: GameOverInfo,
     snapshot: {
+      gameId: string
       pgn: string
       san: string[]
       fen: string
@@ -69,6 +70,7 @@ export default function Home() {
     if (!config) return
     const { humanAccuracy, modelAccuracy } = mockAccuracy()
     setCompletedGame({
+      gameId: snapshot.gameId,
       config,
       gameOver: info,
       pgn: snapshot.pgn,

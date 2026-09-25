@@ -70,6 +70,7 @@ export interface MatchExtras {
 }
 
 export interface CompletedGame {
+  gameId: string
   config: MatchConfig
   extras: MatchExtras
   pgn: string

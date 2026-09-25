@@ -64,6 +64,11 @@ async function request(
 }
 
 export const gameApi = {
+  pgn: async (id: string): Promise<string> => {
+    const response = await fetch(`/api/games/${encodeURIComponent(id)}/pgn`, { cache: "no-store" })
+    if (!response.ok) throw new GameApiError("Could not download PGN", response.status)
+    return response.text()
+  },
   providers: async (): Promise<ConfiguredProvider[]> => {
     const response = await fetch("/api/providers", { cache: "no-store" })
     if (!response.ok) throw new GameApiError("Could not load providers", response.status)

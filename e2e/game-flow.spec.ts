@@ -99,6 +99,9 @@ test("setup, local rejection, backend move, resignation, and new setup", async (
   await authoritativeState(page, gameId)
   expect(final.game_status).toBe("game-over")
   expect(final.termination_reason).toBe("resignation")
+  const download = page.waitForEvent("download")
+  await page.getByRole("button", { name: "Download PGN" }).click()
+  expect((await download).suggestedFilename()).toMatch(/\.pgn$/)
   for (const [path, body] of [
     ["moves", { uci: "e7e5" }],
     ["resign", { color: "white" }],

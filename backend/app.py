@@ -6,6 +6,7 @@ import os
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict
 
 from backend.game import GameCorrupt, GameNotFound, GameOver, GameStore, IllegalMove, ModelTurnConflict
@@ -81,7 +82,20 @@ def create_app(
             raise HTTPException(status_code=422, detail="Model provider and color must be supplied together")
         if request.model_provider and request.model_provider not in available:
             raise HTTPException(status_code=503, detail="Model provider is not configured")
-        return games.create(request.time_control, request.model_provider, request.model_color, request.context_level)
+        model_id = available[request.model_provider].model_id if request.model_provider else None
+        return games.create(request.time_control, request.model_provider, request.model_color, request.context_level, model_id)
+
+    @app.get("/games/{game_id}/pgn")
+    async def export_pgn(game_id: str):
+        try:
+            pgn = games.export_pgn(game_id)
+        except GameNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except GameOver as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return Response(pgn, media_type="application/x-chess-pgn; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="chess-arena-{game_id}.pgn"',
+                                 "Cache-Control": "no-store"})
 
     @app.post("/games/{game_id}/model-turn", response_model=GameState)
     async def model_turn(game_id: str):

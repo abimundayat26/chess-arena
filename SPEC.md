@@ -1,5 +1,11 @@
 # Multi-Model Chess Arena
 
+## Phase 11 — authoritative PGN export
+
+`GET /games/{id}/pgn` returns a UTF-8 `application/x-chess-pgn` attachment only for a terminal game (404 unknown, 409 active). It is generated from the saved initial FEN and authoritative UCI move stack. Its required headers are `Event`, `Site`, `Date`, `Round`, `White`, `Black`, `Result`, and `TimeControl`; `Date` is the UTC creation date and `TimeControl` is the PGN seconds-plus-increment form. The model side uses the configured model display ID frozen at creation; the other side is `Human`. Unbound games use `Demo model` as Black and `Human` as White. Bound exports also have `AIProvider` and `AIModel`; all exports have `Termination` and `IllegalModelMoves`. Header values are escaped through python-chess. The movetext result equals the header and authoritative result. A nonstandard initial FEN uses PGN `SetUp` and `FEN`. These fields survive restart. The Game Over download action fetches this endpoint and reports a generic failure if it cannot download.
+
+---
+
 ## Current milestone — frontend provider hookup
 
 `GET /providers` returns only configured provider names and their server-side model display IDs; it never returns keys or accepts client credentials. Setup always offers the existing unbound demo opponent and additionally lists configured providers. Selecting a real provider creates a bound game with the opposite model color and a server-supported context level. The real setup context choices map to `minimal`, `game_context`, and `structured_position`; client reasoning-effort and deadline overrides are not sent. The server still chooses the provider's actual model ID and adaptive deadline.

@@ -1,6 +1,7 @@
 """In-memory, authoritative chess state and game operations."""
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 import json
 from math import ceil, isfinite
 from threading import RLock
@@ -73,6 +74,8 @@ class Game:
     time_control: str = "10+5"
     model_provider: str | None = None
     model_color: str | None = None
+    model_id: str | None = None
+    created_date: str = field(default_factory=lambda: datetime.now(timezone.utc).strftime("%Y.%m.%d"))
     context_level: str = "minimal"
     illegal_model_move_count: int = 0
     clock_override: str | None = field(default=None, repr=False)
@@ -116,6 +119,30 @@ class Game:
         return pgn_game.accept(chess.pgn.StringExporter(
             headers="FEN" in pgn_game.headers, variations=False, comments=False
         ))
+
+    def export_pgn(self) -> str:
+        self._charge_time()
+        self._require_exportable()
+        record = chess.pgn.Game.from_board(self.board)
+        model_name = self.model_id or ("Demo model" if self.model_provider is None else self.model_provider)
+        record.headers.update({
+            "Event": "Multi-Model Chess Arena", "Site": "Chess Arena",
+            "Date": self.created_date, "Round": "?",
+            "White": model_name if self.model_color == "white" else "Human",
+            "Black": model_name if self.model_color == "black" or self.model_provider is None else "Human",
+            "Result": self.result,
+            "TimeControl": "+".join(str(value) for value in TIME_CONTROLS[self.time_control]),
+            "Termination": self.termination_reason or "?",
+            "IllegalModelMoves": str(self.illegal_model_move_count),
+        })
+        if self.model_provider:
+            record.headers["AIProvider"] = self.model_provider
+            record.headers["AIModel"] = model_name
+        return record.accept(chess.pgn.StringExporter(headers=True, variations=False, comments=False)) + "\n"
+
+    def _require_exportable(self) -> None:
+        if self.status != "game-over":
+            raise GameOver("Game is still active")
 
     def submit_move(self, uci: str, *, charge_time: bool = True) -> None:
         if charge_time:
@@ -231,6 +258,7 @@ class GameStore:
             "termination_reason": game.termination_reason,
             "time_control": game.time_control,
             "model_provider": game.model_provider, "model_color": game.model_color,
+            "model_id": game.model_id, "created_date": game.created_date,
             "context_level": game.context_level,
             "illegal_model_move_count": game.illegal_model_move_count,
             "white_seconds": game.white_seconds, "black_seconds": game.black_seconds,
@@ -271,6 +299,7 @@ class GameStore:
             board.push_uci(uci)
         game = Game(id=game_id, board=board, time_control=payload["time_control"],
                     model_provider=payload["model_provider"], model_color=payload["model_color"],
+                    model_id=payload.get("model_id"), created_date=payload.get("created_date", "????.??.??"),
                     context_level=payload["context_level"], clock=self._clock,
                     illegal_model_move_count=payload["illegal_model_move_count"])
         game.status = payload["status"]
@@ -292,13 +321,13 @@ class GameStore:
 
     def create(
         self, time_control: str = "10+5", model_provider: str | None = None,
-        model_color: str | None = None, context_level: str = "minimal",
+        model_color: str | None = None, context_level: str = "minimal", model_id: str | None = None,
     ) -> dict:
         with self._lock:
             game = Game(
                 time_control=time_control, clock=self._clock,
                 model_provider=model_provider, model_color=model_color,
-                context_level=context_level,
+                context_level=context_level, model_id=model_id,
             )
             self._games[game.id] = game
             game.on_change = self._save_game
@@ -307,6 +336,10 @@ class GameStore:
     def get(self, game_id: str) -> dict:
         with self._lock:
             return self._find(game_id).snapshot()
+
+    def export_pgn(self, game_id: str) -> str:
+        with self._lock:
+            return self._find(game_id).export_pgn()
 
     def move(self, game_id: str, uci: str) -> dict:
         with self._lock:
