@@ -16,6 +16,7 @@ class ModelPosition:
     fullmove_number: int | None = None
     previous_illegal_move: str | None = None
     draw_offer: bool = False
+    model_color: str | None = None
 
 
 
@@ -27,6 +28,8 @@ def _prompt(position: ModelPosition) -> str:
         f"Side to move: {position.side_to_move}\n"
         f"Legal UCI moves: {', '.join(position.legal_moves)}"
     )
+    if position.draw_offer:
+        prompt += f"\nYour color: {position.model_color}"
     if position.pgn is not None:
         prompt += f"\nPGN: {position.pgn}\nTime remaining (ms): {position.time_remaining_ms}"
     if position.pieces is not None:

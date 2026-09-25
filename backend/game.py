@@ -460,7 +460,7 @@ class GameStore:
                 extra["material_counts"] = tuple((name, len(game.board.pieces(kind, chess.WHITE)), len(game.board.pieces(kind, chess.BLACK))) for name, kind in (("pawn", chess.PAWN), ("knight", chess.KNIGHT), ("bishop", chess.BISHOP), ("rook", chess.ROOK), ("queen", chess.QUEEN)))
                 extra["castling_rights"] = game.board.castling_xfen()
                 extra["fullmove_number"] = game.board.fullmove_number
-            position = ModelPosition(game.board.fen(), "white" if game.board.turn else "black", tuple(move.uci() for move in game.board.legal_moves), draw_offer=True, **extra)
+            position = ModelPosition(game.board.fen(), "white" if game.board.turn else "black", tuple(move.uci() for move in game.board.legal_moves), draw_offer=True, model_color=game.model_color, **extra)
             return game.model_provider, position, budget, token
 
     def finish_draw_decision(self, game_id: str, accepted: bool | None, token: object) -> dict:

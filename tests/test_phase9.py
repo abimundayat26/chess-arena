@@ -54,6 +54,7 @@ def test_bound_draw_decision_on_human_turn(answer, reason):
         assert state["white_clock_ms"] == 180000
         assert state["illegal_model_move_count"] == 0
         assert model.positions[0].draw_offer is True
+        assert model.positions[0].model_color == "black"
         if not answer:
             assert state["active_clock"] == "white"
             clock.now += 1

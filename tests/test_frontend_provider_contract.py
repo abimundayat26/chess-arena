@@ -38,7 +38,7 @@ def test_provider_draw_prompt_and_strict_decision(adapter_type, wrap):
         return httpx.Response(200, json=wrap(next(answers)))
 
     adapter = adapter_type("server-secret", "test-model", httpx.MockTransport(respond))
-    position = ModelPosition("valid-fen", "white", ("e2e4",))
+    position = ModelPosition("valid-fen", "white", ("e2e4",), model_color="black")
     assert asyncio.run(adapter.choose_draw(position)) is True
     assert asyncio.run(adapter.choose_draw(position)) is False
     with pytest.raises(ProviderError):
@@ -46,6 +46,7 @@ def test_provider_draw_prompt_and_strict_decision(adapter_type, wrap):
     with pytest.raises(ProviderError):
         asyncio.run(adapter.choose_draw(position))
     assert all("exactly accept or decline" in json.dumps(payload).lower() for payload in payloads)
+    assert all("your color: black" in json.dumps(payload).lower() for payload in payloads)
     assert all("server-secret" not in json.dumps(payload) for payload in payloads)
 
 
