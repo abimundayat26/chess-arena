@@ -125,6 +125,9 @@ class Game:
         self._require_exportable()
         record = chess.pgn.Game.from_board(self.board)
         model_name = self.model_id or ("Demo model" if self.model_provider is None else self.model_provider)
+        # PGN tag values cannot contain line breaks. Model IDs originate in
+        # configuration, so keep a malformed value from breaking export.
+        model_name = model_name.replace("\r", " ").replace("\n", " ")
         record.headers.update({
             "Event": "Multi-Model Chess Arena", "Site": "Chess Arena",
             "Date": self.created_date, "Round": "?",

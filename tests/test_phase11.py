@@ -1,5 +1,6 @@
 import io
 
+import chess
 import chess.pgn
 from fastapi.testclient import TestClient
 
@@ -53,4 +54,42 @@ def test_draw_and_promotion_export():
     replay = chess.pgn.read_game(io.StringIO(store.export_pgn(game_id)))
     assert replay.headers["Result"] == "1/2-1/2"
     assert "=Q" in store.export_pgn(game_id)
+    assert replay.end().board().fen() == store.get(game_id)["fen"]
+
+
+def test_configured_model_name_with_line_breaks_is_exportable_after_restart(tmp_path):
+    path = str(tmp_path / "games.sqlite3")
+    providers = {"openai": ProviderBinding("Model\r\nName", UnusedProvider())}
+    with TestClient(create_app(GameStore(path=path), providers)) as client:
+        game_id = client.post("/games", json={"model_provider": "openai", "model_color": "white"}).json()["game_id"]
+        assert client.post(f"/games/{game_id}/resign", json={"color": "black"}).status_code == 200
+
+    with TestClient(create_app(GameStore(path=path), providers)) as client:
+        response = client.get(f"/games/{game_id}/pgn")
+        assert response.status_code == 200
+        game = chess.pgn.read_game(io.StringIO(response.text))
+        assert game is not None
+        assert game.errors == []
+        assert game.headers["White"] == "Model  Name"
+        assert game.headers["AIModel"] == "Model  Name"
+        assert game.headers["Black"] == "Human"
+        assert game.headers["Result"] == "1-0"
+
+
+def test_export_preserves_nonstandard_starting_position(tmp_path):
+    path = str(tmp_path / "games.sqlite3")
+    store = GameStore(path=path)
+    game_id = store.create()["game_id"]
+    initial_fen = "8/P7/8/8/8/8/7k/4K3 w - - 0 1"
+    game = store._find(game_id)
+    game.board = chess.Board(initial_fen)
+    game._changed()
+    store.move(game_id, "a7a8q")
+    store.resign(game_id, "black")
+
+    replay = chess.pgn.read_game(io.StringIO(GameStore(path=path).export_pgn(game_id)))
+    assert replay is not None
+    assert replay.errors == []
+    assert replay.headers["SetUp"] == "1"
+    assert replay.headers["FEN"] == initial_fen
     assert replay.end().board().fen() == store.get(game_id)["fen"]
