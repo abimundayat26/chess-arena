@@ -74,6 +74,7 @@ def create_app(
     credentials: dict[str, dict[str, str]] = {}
     public_origin = os.environ.get("CHESS_PUBLIC_ORIGIN", "")
     analysis_locks: dict[str, asyncio.Lock] = {}
+    public_analysis_slot = asyncio.Semaphore(1)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, exc: RequestValidationError):
@@ -84,6 +85,11 @@ def create_app(
     def session_hash(request: Request) -> str | None:
         token = request.cookies.get("chess_session")
         return sha256(token.encode()).hexdigest() if token and len(token) == 43 else None
+
+    def known_session(request: Request) -> str | None:
+        owner = session_hash(request)
+        # A well-shaped cookie is not proof that this server issued it.
+        return owner if owner and (owner in credentials or games.has_owner_hash(owner)) else None
 
     def set_session_cookie(response: Response, token: str) -> None:
         response.set_cookie("chess_session", token, httponly=True, secure=True,
@@ -142,7 +148,7 @@ def create_app(
                 not 8 <= len(body["api_key"]) <= 512 or any(ord(ch) < 32 for ch in body["api_key"])):
             raise HTTPException(status_code=422, detail="Invalid credential request")
         token = request.cookies.get("chess_session")
-        if session_hash(request) is None:
+        if known_session(request) is None:
             token = secrets.token_urlsafe(32)
             set_session_cookie(response, token)
         credentials.setdefault(sha256(token.encode()).hexdigest(), {})[body["provider"]] = body["api_key"]
@@ -155,7 +161,7 @@ def create_app(
 
     @app.post("/games", status_code=201, response_model=GameState)
     async def create_game(http_request: Request, response: Response, request: CreateGameRequest | None = None):
-        owner = session_hash(http_request) if public_mode else None
+        owner = known_session(http_request) if public_mode else None
         if public_mode and owner is None:
             token = secrets.token_urlsafe(32)
             owner = sha256(token.encode()).hexdigest()
@@ -191,7 +197,10 @@ def create_app(
     @app.post("/games/{game_id}/analysis")
     async def analyze_game(game_id: str, request: Request):
         require_owner(game_id, request)
-        async with analysis_locks.setdefault(game_id, asyncio.Lock()):
+        game_lock = analysis_locks.setdefault(game_id, asyncio.Lock())
+        if public_mode and game_lock.locked():
+            raise HTTPException(status_code=429, detail="Analysis is busy")
+        async with game_lock:
             try:
                 board, cached = games.analysis_input(game_id)
             except GameNotFound as exc:
@@ -200,6 +209,10 @@ def create_app(
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
             if board is None:
                 return cached
+            if public_mode and public_analysis_slot.locked():
+                raise HTTPException(status_code=429, detail="Analysis is busy")
+            if public_mode:
+                await public_analysis_slot.acquire()
             try:
                 result = await asyncio.wait_for(
                     asyncio.to_thread(run_analysis, board, os.environ.get("CHESS_STOCKFISH_PATH", "stockfish")),
@@ -207,6 +220,9 @@ def create_app(
                 )
             except Exception:
                 result = unavailable("engine_failed")
+            finally:
+                if public_mode:
+                    public_analysis_slot.release()
             return games.save_analysis(game_id, result)
 
     @app.get("/games/{game_id}/metrics")
