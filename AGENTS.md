@@ -33,13 +33,13 @@ Current requirements in `SPEC.md` take priority over future ideas in `ROADMAP.md
 
 # 1. Current Development Phase
 
-The project is currently in:
+The project has completed and reviewed:
 
 ```text
-Phase 4 model provider architecture (reviewed Phase 3 chess and clocks)
+Phases 7–10 and the configured-provider frontend hookup
 ```
 
-The backend remains in scope for the Phase 4 contract in `SPEC.md`. Agents must not implement future phases unless explicitly instructed.
+The current contracts are in `SPEC.md`. Agents must not implement Phase 11 onward unless explicitly instructed.
 
 The fact that functionality appears in `ROADMAP.md` does NOT authorize its implementation.
 

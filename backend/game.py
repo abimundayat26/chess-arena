@@ -215,7 +215,9 @@ class GameStore:
         self._clock = clock
         self._model_calls: dict[str, tuple[object, float, float, int]] = {}
         self._draw_calls: dict[str, tuple[object, float, float]] = {}
-        self._storage = LocalStorage(path, wall_clock) if path is not None and wall_clock is not None else LocalStorage(path) if path is not None else None
+        self._storage = None
+        if path is not None:
+            self._storage = LocalStorage(path, wall_clock) if wall_clock is not None else LocalStorage(path)
         if self._storage is not None:
             self._restore_games()
 
@@ -245,30 +247,30 @@ class GameStore:
                 self._corrupt_games.add(game_id)
 
     def _restore_game(self, game_id: str, payload: dict, saved_wall: float) -> None:
-            assert self._storage is not None
-            board = chess.Board(payload["root_fen"])
-            for uci in payload["moves"]:
-                board.push_uci(uci)
-            game = Game(id=game_id, board=board, time_control=payload["time_control"],
-                        model_provider=payload["model_provider"], model_color=payload["model_color"],
-                        context_level=payload["context_level"], clock=self._clock,
-                        illegal_model_move_count=payload["illegal_model_move_count"])
-            game.status = payload["status"]
-            game.result = payload["result"]
-            game.termination_reason = payload["termination_reason"]
-            game.white_seconds = payload["white_seconds"]
-            game.black_seconds = payload["black_seconds"]
-            game.clock_override = payload["clock_override"]
+        assert self._storage is not None
+        board = chess.Board(payload["root_fen"])
+        for uci in payload["moves"]:
+            board.push_uci(uci)
+        game = Game(id=game_id, board=board, time_control=payload["time_control"],
+                    model_provider=payload["model_provider"], model_color=payload["model_color"],
+                    context_level=payload["context_level"], clock=self._clock,
+                    illegal_model_move_count=payload["illegal_model_move_count"])
+        game.status = payload["status"]
+        game.result = payload["result"]
+        game.termination_reason = payload["termination_reason"]
+        game.white_seconds = payload["white_seconds"]
+        game.black_seconds = payload["black_seconds"]
+        game.clock_override = payload["clock_override"]
+        game.last_tick = self._clock()
+        if game.status == "playing":
+            downtime = max(0.0, self._storage.wall_clock() - saved_wall)
+            game.last_tick -= downtime
+            game._charge_time()
+            game.clock_override = None
             game.last_tick = self._clock()
-            if game.status == "playing":
-                downtime = max(0.0, self._storage.wall_clock() - saved_wall)
-                game.last_tick -= downtime
-                game._charge_time()
-                game.clock_override = None
-                game.last_tick = self._clock()
-            self._games[game_id] = game
-            game.on_change = self._save_game
-            self._save_game(game)
+        self._games[game_id] = game
+        game.on_change = self._save_game
+        self._save_game(game)
 
     def create(
         self, time_control: str = "10+5", model_provider: str | None = None,

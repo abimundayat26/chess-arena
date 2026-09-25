@@ -140,7 +140,7 @@ just like:
 
 # Phase 4 — Model Provider Architecture
 
-Status: **ACTIVE**. The one-turn implementation contract is in `SPEC.md`.
+Status: **COMPLETED AND REVIEWED**. The implementation contract is in `SPEC.md`.
 
 Create a provider-independent interface.
 
@@ -259,6 +259,8 @@ Time spent on failed/illegal responses remains real clock consumption.
 
 # Phase 7 — Illegal Model Move Handling
 
+Status: **COMPLETED AND REVIEWED**. The bounded retry contract is in `SPEC.md`.
+
 Every model move must be independently validated.
 
 Preferred machine-readable format:
@@ -309,6 +311,8 @@ All retries count against its clock.
 
 # Phase 8 — No-Engine Gameplay Enforcement
 
+Status: **COMPLETED AND REVIEWED**. The live prompt boundary is in `SPEC.md`.
+
 During live gameplay the model must never receive:
 
 - Stockfish evaluations
@@ -325,6 +329,8 @@ Stockfish must remain architecturally separated from the live model pathway.
 ---
 
 # Phase 9 — Draw Decisions
+
+Status: **COMPLETED AND REVIEWED**. The bound-model decision contract is in `SPEC.md`.
 
 Eventually draw offers should involve the actual model.
 
@@ -357,6 +363,8 @@ A future version may allow the AI itself to offer draws.
 ---
 
 # Phase 10 — Game Persistence
+
+Status: **COMPLETED AND REVIEWED**. Local SQLite recovery is in `SPEC.md`.
 
 Store games locally by default.
 

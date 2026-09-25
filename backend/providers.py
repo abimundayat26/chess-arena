@@ -54,7 +54,7 @@ class HttpModel:
 
     @staticmethod
     def _text(value: object) -> str:
-        if not isinstance(value, str) or not value.strip():
+        if not isinstance(value, str):
             raise ProviderError("Model provider returned no move")
         return value.strip()
 
