@@ -6,10 +6,9 @@ import { GameResult } from "@/components/game-over/game-result"
 import { GameSummary } from "@/components/game-over/game-summary"
 import { AccuracyBar } from "@/components/game-over/accuracy-bar"
 import { MoveReview } from "@/components/game-over/move-review"
-import { PostGameExplanation } from "@/components/game-over/post-game-explanation"
 import type { CompletedGame } from "@/lib/chess/types"
-import { gameApi } from "@/lib/chess/api"
-import { useState } from "react"
+import { gameApi, type GameAnalysis } from "@/lib/chess/api"
+import { useEffect, useState } from "react"
 import { DownloadIcon, RotateCcwIcon, SettingsIcon } from "lucide-react"
 
 interface GameOverProps {
@@ -40,6 +39,16 @@ export function GameOver({
   startError,
 }: GameOverProps) {
   const [downloadError, setDownloadError] = useState(false)
+  const [analysis, setAnalysis] = useState<GameAnalysis | null>(null)
+  useEffect(() => {
+    let mounted = true
+    void gameApi.analysis(game.gameId).then((value) => {
+      if (mounted) setAnalysis(value)
+    }).catch(() => {
+      if (mounted) setAnalysis({ status: "unavailable", reason: "engine_failed" })
+    })
+    return () => { mounted = false }
+  }, [game.gameId])
   async function handleDownload() {
     try {
       setDownloadError(false)
@@ -54,13 +63,14 @@ export function GameOver({
         <CardContent className="flex flex-col gap-6 pt-2">
           <GameResult game={game} />
           <GameSummary game={game} />
-          {!game.config.model.backendProvider && (
+          {analysis?.status === "complete" && (
             <>
-              <AccuracyBar game={game} />
-              <MoveReview san={game.san} />
-              <PostGameExplanation san={game.san} />
+              <AccuracyBar game={game} analysis={analysis} />
+              <MoveReview san={game.san} analysis={analysis} />
             </>
           )}
+          {analysis?.status === "unavailable" && <p className="text-sm text-muted-foreground">Stockfish analysis unavailable.</p>}
+          {!analysis && <p className="text-sm text-muted-foreground">Analyzing completed game…</p>}
 
           {startError && (
             <p role="alert" className="text-sm text-accent">

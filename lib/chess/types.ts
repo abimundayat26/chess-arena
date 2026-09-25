@@ -65,8 +65,6 @@ export interface MatchExtras {
   humanClockLabel: string
   modelClockLabel: string
   illegalModelMoves: number
-  humanAccuracy: number
-  modelAccuracy: number
 }
 
 export interface CompletedGame {

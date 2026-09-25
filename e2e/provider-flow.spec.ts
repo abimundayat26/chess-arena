@@ -46,6 +46,10 @@ async function routeFakeProvider(page: Page, terminalOnTurn = false) {
       await route.fulfill({ json: decorate(await response.json()) })
       return
     }
+    if (url.endsWith("/analysis")) {
+      await route.fulfill({ json: { status: "unavailable", reason: "engine_unavailable" } })
+      return
+    }
     const response = await route.fetch()
     await route.fulfill({ response, json: decorate(await response.json()) })
   })

@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict
 
 from backend.game import GameCorrupt, GameNotFound, GameOver, GameStore, IllegalMove, ModelTurnConflict
 from backend.providers import ProviderBinding, configured_providers
+from backend.analysis import run_analysis, unavailable
 
 
 class CreateGameRequest(BaseModel):
@@ -62,6 +63,7 @@ def create_app(
     app = FastAPI(title="Multi-Model Chess Arena")
     games = store if store is not None else GameStore(path=os.environ.get("CHESS_DB_PATH", ".data/chess-arena.sqlite3"))
     available = providers if providers is not None else configured_providers()
+    analysis_locks: dict[str, asyncio.Lock] = {}
 
     @app.get("/providers")
     async def list_providers():
@@ -96,6 +98,26 @@ def create_app(
         return Response(pgn, media_type="application/x-chess-pgn; charset=utf-8",
                         headers={"Content-Disposition": f'attachment; filename="chess-arena-{game_id}.pgn"',
                                  "Cache-Control": "no-store"})
+
+    @app.post("/games/{game_id}/analysis")
+    async def analyze_game(game_id: str):
+        async with analysis_locks.setdefault(game_id, asyncio.Lock()):
+            try:
+                board, cached = games.analysis_input(game_id)
+            except GameNotFound as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            except GameOver as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            if board is None:
+                return cached
+            try:
+                result = await asyncio.wait_for(
+                    asyncio.to_thread(run_analysis, board, os.environ.get("CHESS_STOCKFISH_PATH", "stockfish")),
+                    timeout=30.0,
+                )
+            except Exception:
+                result = unavailable("engine_failed")
+            return games.save_analysis(game_id, result)
 
     @app.post("/games/{game_id}/model-turn", response_model=GameState)
     async def model_turn(game_id: str):

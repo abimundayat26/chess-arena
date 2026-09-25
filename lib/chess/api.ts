@@ -24,6 +24,22 @@ export interface ConfiguredProvider {
   model: string
 }
 
+export interface GameAnalysis {
+  status: "complete" | "unavailable"
+  reason?: "engine_unavailable" | "engine_failed" | "game_too_long"
+  moves?: {
+    ply: number
+    san: string
+    uci: string
+    mover: PlayerColor
+    evaluation_cp: number
+    centipawn_loss: number
+    classification: "best" | "good" | "inaccuracy" | "mistake" | "blunder"
+  }[]
+  white_accuracy?: number | null
+  black_accuracy?: number | null
+}
+
 export class GameApiError extends Error {
   constructor(
     message: string,
@@ -64,6 +80,11 @@ async function request(
 }
 
 export const gameApi = {
+  analysis: async (id: string): Promise<GameAnalysis> => {
+    const response = await fetch(`/api/games/${encodeURIComponent(id)}/analysis`, { method: "POST", cache: "no-store" })
+    if (!response.ok) throw new GameApiError("Analysis is unavailable", response.status)
+    return response.json() as Promise<GameAnalysis>
+  },
   pgn: async (id: string): Promise<string> => {
     const response = await fetch(`/api/games/${encodeURIComponent(id)}/pgn`, { cache: "no-store" })
     if (!response.ok) throw new GameApiError("Could not download PGN", response.status)

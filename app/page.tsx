@@ -7,7 +7,6 @@ import { GameSetup } from "@/components/game-setup/game-setup"
 import { ActiveGame } from "@/components/active-game/active-game"
 import { GameOver } from "@/components/game-over/game-over"
 import { gameApi, type ServerGame } from "@/lib/chess/api"
-import { mockAccuracy } from "@/lib/chess/mock-data"
 import type {
   AppScreen,
   CompletedGame,
@@ -68,7 +67,6 @@ export default function Home() {
     }
   ) {
     if (!config) return
-    const { humanAccuracy, modelAccuracy } = mockAccuracy()
     setCompletedGame({
       gameId: snapshot.gameId,
       config,
@@ -81,8 +79,6 @@ export default function Home() {
         humanClockLabel: "",
         modelClockLabel: "",
         illegalModelMoves: snapshot.illegalModelMoves,
-        humanAccuracy,
-        modelAccuracy,
       },
     })
     setScreen("game-over")

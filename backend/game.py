@@ -78,6 +78,7 @@ class Game:
     created_date: str = field(default_factory=lambda: datetime.now(timezone.utc).strftime("%Y.%m.%d"))
     context_level: str = "minimal"
     illegal_model_move_count: int = 0
+    analysis: dict | None = None
     clock_override: str | None = field(default=None, repr=False)
     clock: Callable[[], float] = field(default=monotonic, repr=False)
     on_change: Callable[["Game"], None] | None = field(default=None, repr=False)
@@ -266,6 +267,7 @@ class GameStore:
             "illegal_model_move_count": game.illegal_model_move_count,
             "white_seconds": game.white_seconds, "black_seconds": game.black_seconds,
             "clock_override": game.clock_override,
+            "analysis": game.analysis,
         })
 
     def _restore_games(self) -> None:
@@ -305,6 +307,7 @@ class GameStore:
                     model_id=payload.get("model_id"), created_date=payload.get("created_date", "????.??.??"),
                     context_level=payload["context_level"], clock=self._clock,
                     illegal_model_move_count=payload["illegal_model_move_count"])
+        game.analysis = payload.get("analysis")
         game.status = payload["status"]
         game.result = payload["result"]
         game.termination_reason = payload["termination_reason"]
@@ -343,6 +346,24 @@ class GameStore:
     def export_pgn(self, game_id: str) -> str:
         with self._lock:
             return self._find(game_id).export_pgn()
+
+    def analysis_input(self, game_id: str) -> tuple[chess.Board | None, dict | None]:
+        with self._lock:
+            game = self._find(game_id)
+            game._charge_time()
+            game._require_exportable()
+            return (None if game.analysis and game.analysis.get("status") == "complete" else game.board.copy(stack=True),
+                    game.analysis)
+
+    def save_analysis(self, game_id: str, result: dict) -> dict:
+        with self._lock:
+            game = self._find(game_id)
+            game._require_exportable()
+            if game.analysis and game.analysis.get("status") == "complete":
+                return game.analysis
+            game.analysis = result
+            game._changed()
+            return result
 
     def move(self, game_id: str, uci: str) -> dict:
         with self._lock:
