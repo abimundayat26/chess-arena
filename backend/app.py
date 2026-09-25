@@ -116,12 +116,11 @@ def create_app(
                 origin = request.headers.get("origin")
                 if origin and (not public_origin or origin != public_origin):
                     return JSONResponse({"detail": "Forbidden"}, status_code=403)
-            if request.method in ("POST", "PUT", "PATCH"):
-                size = request.headers.get("content-length")
-                if size and (not size.isdigit() or int(size) > 8192):
-                    return JSONResponse({"detail": "Request too large"}, status_code=413)
-                if len(await request.body()) > 8192:
-                    return JSONResponse({"detail": "Request too large"}, status_code=413)
+            size = request.headers.get("content-length")
+            if size and (not size.isdigit() or int(size) > 8192):
+                return JSONResponse({"detail": "Request too large"}, status_code=413)
+            if len(await request.body()) > 8192:
+                return JSONResponse({"detail": "Request too large"}, status_code=413)
         return await call_next(request)
 
     @app.get("/providers")
@@ -138,7 +137,8 @@ def create_app(
         except ValueError:
             body = None
         if (not isinstance(body, dict) or set(body) != {"provider", "api_key"} or
-                body.get("provider") not in catalog or not isinstance(body.get("api_key"), str) or
+                not isinstance(body.get("provider"), str) or body["provider"] not in catalog or
+                not isinstance(body.get("api_key"), str) or
                 not 8 <= len(body["api_key"]) <= 512 or any(ord(ch) < 32 for ch in body["api_key"])):
             raise HTTPException(status_code=422, detail="Invalid credential request")
         token = request.cookies.get("chess_session")

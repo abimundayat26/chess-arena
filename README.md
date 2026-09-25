@@ -44,8 +44,12 @@ Backend endpoints are documented at `http://127.0.0.1:8000/docs`.
 | POST | `/games/{game_id}/resign` | `{"color":"white"}` or `{"color":"black"}` |
 | POST | `/games/{game_id}/model-turn` | none |
 | POST | `/games/{game_id}/draw-offer` | `{}` for bound games; `{"accepted":true}` or `{"accepted":false}` for demo games |
+| GET | `/games/{game_id}/pgn` | none; completed games only |
+| POST | `/games/{game_id}/analysis` | none; completed games only |
+| GET | `/games/{game_id}/metrics` | none; completed games only |
+| POST | `/credentials` | `{"provider":"openai","api_key":"..."}` in public mode only |
 
-Restarting the backend recovers saved games and charges elapsed wall time to the active clock. Post-game engine analysis is not included.
+Restarting the backend recovers saved games and charges elapsed wall time to the active clock. Completed games can be exported as PGN and analyzed with Stockfish when the executable is available. Public-mode game endpoints require the creator's session cookie.
 
 ## Public deployment preparation
 

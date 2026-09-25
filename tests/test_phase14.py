@@ -11,6 +11,7 @@ from backend.providers import ADAPTERS, OpenAIAdapter
 
 ORIGIN = "https://chess.example.test"
 KEY = "sk-fake-test-credential-only"
+OTHER_KEY = "sk-fake-unselected-provider"
 
 
 def public_app(monkeypatch, store):
@@ -50,12 +51,15 @@ def test_byok_ownership_transport_and_restart(tmp_path, monkeypatch):
         assert owner.get("/games/no-such-game").status_code == 404
         assert stranger.post(f"/games/{game_id}/model-turn", headers={"Origin": ORIGIN}).status_code == 404
         assert owner.post("/games", json={"model_provider": "gemini", "model_color": "black"}, headers={"Origin": ORIGIN}).status_code == 503
+        assert owner.post("/credentials", json={"provider": "gemini", "api_key": OTHER_KEY}, headers={"Origin": ORIGIN}).status_code == 204
         assert owner.post(f"/games/{game_id}/moves", json={"uci": "e2e4"}, headers={"Origin": ORIGIN}).status_code == 200
         result = owner.post(f"/games/{game_id}/model-turn", headers={"Origin": ORIGIN})
         assert result.status_code == 200, result.text
         assert len(seen) == 1
         assert seen[0].headers["Authorization"] == f"Bearer {KEY}"
         assert KEY not in seen[0].content.decode()
+        assert OTHER_KEY not in str(seen[0].headers)
+        assert OTHER_KEY not in seen[0].content.decode()
         assert KEY not in json.dumps(result.json())
         assert owner.post(f"/games/{game_id}/resign", json={"color": "white"}, headers={"Origin": ORIGIN}).status_code == 200
         assert stranger.get(f"/games/{game_id}/pgn").status_code == 404
@@ -66,6 +70,7 @@ def test_byok_ownership_transport_and_restart(tmp_path, monkeypatch):
     with sqlite3.connect(path) as connection:
         payload = connection.execute("SELECT payload FROM games WHERE id=?", (game_id,)).fetchone()[0]
     assert KEY not in payload
+    assert OTHER_KEY not in payload
     assert "owner_hash" in payload
     restarted, _ = public_app(monkeypatch, GameStore(path=path))
     with TestClient(restarted, base_url=ORIGIN, cookies=cookies) as restored:
@@ -84,6 +89,11 @@ def test_public_limits_and_generic_credential_validation(tmp_path, monkeypatch):
         assert typed.status_code == 422
         assert KEY not in typed.text
         assert client.post("/credentials", content="x" * 8193, headers={"Origin": ORIGIN}).status_code == 413
+        assert client.request("GET", "/providers", content="x" * 8193).status_code == 413
+        for provider in ([], {"name": "openai"}, 7, None):
+            response = client.post("/credentials", json={"provider": provider, "api_key": KEY}, headers={"Origin": ORIGIN})
+            assert response.status_code == 422
+            assert KEY not in response.text
         for _ in range(4):
             assert client.post("/games", headers={"Origin": ORIGIN}).status_code == 201
         assert client.post("/games", headers={"Origin": ORIGIN}).status_code == 429
@@ -108,4 +118,5 @@ def test_missing_key_after_restart_and_provider_cap(tmp_path, monkeypatch):
         game.provider_attempt_count = 200
         game._changed()
         assert client.post(f"/games/{game_id}/model-turn", headers={"Origin": ORIGIN}).status_code == 429
+        assert client.post(f"/games/{game_id}/draw-offer", json={}, headers={"Origin": ORIGIN}).status_code == 429
         assert restarted_seen == []
