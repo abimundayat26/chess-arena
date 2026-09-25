@@ -1,6 +1,7 @@
 .vercel
 .vercel/
 .env*
+!.env.public.example
 .env.local
 .venv/
 __pycache__/
@@ -9,6 +10,8 @@ __pycache__/
 node_modules/
 .next/
 dist/
+build/
+*.egg-info/
 next-env.d.ts
 *.tsbuildinfo
 playwright-report/

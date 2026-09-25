@@ -9,6 +9,7 @@ export interface ModelOption {
   name: string
   provider: string
   backendProvider?: "openai" | "anthropic" | "gemini" | "openrouter"
+  byok?: boolean
 }
 
 export interface TimeControlOption {

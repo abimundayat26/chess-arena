@@ -22,6 +22,7 @@ export interface ServerGame {
 export interface ConfiguredProvider {
   provider: "openai" | "anthropic" | "gemini" | "openrouter"
   model: string
+  byok?: boolean
 }
 
 export interface GameAnalysis {
@@ -96,6 +97,15 @@ async function request(
 }
 
 export const gameApi = {
+  credential: async (provider: ConfiguredProvider["provider"], apiKey: string): Promise<void> => {
+    const response = await fetch("/api/credentials", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider, api_key: apiKey }),
+      cache: "no-store",
+    })
+    if (!response.ok) throw new GameApiError("Could not use provider key", response.status)
+  },
   metrics: async (id: string): Promise<GameMetrics> => {
     const response = await fetch(`/api/games/${encodeURIComponent(id)}/metrics`, { cache: "no-store" })
     if (!response.ok) throw new GameApiError("Metrics are unavailable", response.status)

@@ -76,6 +76,7 @@ class Game:
     model_provider: str | None = None
     model_color: str | None = None
     model_id: str | None = None
+    owner_hash: str | None = None
     created_date: str = field(default_factory=lambda: datetime.now(timezone.utc).strftime("%Y.%m.%d"))
     context_level: str = "minimal"
     illegal_model_move_count: int = 0
@@ -278,6 +279,7 @@ class GameStore:
             "time_control": game.time_control,
             "model_provider": game.model_provider, "model_color": game.model_color,
             "model_id": game.model_id, "created_date": game.created_date,
+            "owner_hash": game.owner_hash,
             "context_level": game.context_level,
             "illegal_model_move_count": game.illegal_model_move_count,
             "white_seconds": game.white_seconds, "black_seconds": game.black_seconds,
@@ -327,6 +329,7 @@ class GameStore:
         game = Game(id=game_id, board=board, time_control=payload["time_control"],
                     model_provider=payload["model_provider"], model_color=payload["model_color"],
                     model_id=payload.get("model_id"), created_date=payload.get("created_date", "????.??.??"),
+                    owner_hash=payload.get("owner_hash"),
                     context_level=payload["context_level"], clock=self._clock,
                     illegal_model_move_count=payload["illegal_model_move_count"])
         game.analysis = payload.get("analysis")
@@ -364,12 +367,14 @@ class GameStore:
     def create(
         self, time_control: str = "10+5", model_provider: str | None = None,
         model_color: str | None = None, context_level: str = "minimal", model_id: str | None = None,
+        owner_hash: str | None = None,
     ) -> dict:
         with self._lock:
             game = Game(
                 time_control=time_control, clock=self._clock,
                 model_provider=model_provider, model_color=model_color,
                 context_level=context_level, model_id=model_id,
+                owner_hash=owner_hash,
             )
             self._games[game.id] = game
             game.on_change = self._save_game
@@ -378,6 +383,18 @@ class GameStore:
     def get(self, game_id: str) -> dict:
         with self._lock:
             return self._find(game_id).snapshot()
+
+    def owner_hash(self, game_id: str) -> str | None:
+        with self._lock:
+            return self._find(game_id).owner_hash
+
+    def active_games_for_owner(self, owner_hash: str) -> int:
+        with self._lock:
+            return sum(game.owner_hash == owner_hash and game.status == "playing" for game in self._games.values())
+
+    def provider_attempts(self, game_id: str) -> int:
+        with self._lock:
+            return self._find(game_id).provider_attempt_count
 
     def export_pgn(self, game_id: str) -> str:
         with self._lock:

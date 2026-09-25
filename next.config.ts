@@ -2,15 +2,12 @@ import type { NextConfig } from "next"
 
 const nextConfig: NextConfig = {
   agentRules: false,
+  output: "standalone",
   async rewrites() {
-    return process.env.NODE_ENV === "development"
-      ? [
-          {
-            source: "/api/:path*",
-            destination: `${process.env.CHESS_API_URL ?? "http://127.0.0.1:8000"}/:path*`,
-          },
-        ]
-      : []
+    return [{
+      source: "/api/:path*",
+      destination: `${process.env.CHESS_API_URL ?? "http://127.0.0.1:8000"}/:path*`,
+    }]
   },
   async headers() {
     return [

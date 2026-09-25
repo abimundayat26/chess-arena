@@ -21,19 +21,20 @@ import { ModelSelector } from "./model-selector"
 import { TimeControlSelector } from "./time-control-selector"
 
 interface GameSetupProps {
-  onStart: (config: MatchConfig) => void
+  onStart: (config: MatchConfig, apiKey?: string) => void
   starting?: boolean
 }
 
 export function GameSetup({ onStart, starting = false }: GameSetupProps) {
   const [model, setModel] = useState(MODEL_OPTIONS[0])
   const [models, setModels] = useState<ModelOption[]>(MODEL_OPTIONS)
+  const [apiKey, setApiKey] = useState("")
   useEffect(() => {
     let active = true
     void gameApi.providers().then((configured) => {
       if (!active) return
-      setModels([...MODEL_OPTIONS, ...configured.map(({ provider, model: name }) => ({
-        id: `configured-${provider}`, name, provider: provider[0].toUpperCase() + provider.slice(1), backendProvider: provider,
+      setModels([...MODEL_OPTIONS, ...configured.map(({ provider, model: name, byok }) => ({
+        id: `configured-${provider}`, name, provider: provider[0].toUpperCase() + provider.slice(1), backendProvider: provider, byok,
       }))])
     }).catch(() => {})
     return () => { active = false }
@@ -65,8 +66,16 @@ export function GameSetup({ onStart, starting = false }: GameSetupProps) {
         <div className="flex flex-col gap-6">
           <ModelSelector value={model} onChange={(next) => {
             setModel(next)
+            setApiKey("")
             if (next.backendProvider && difficulty === "custom") setDifficulty("standard")
           }} models={models} />
+          {model.backendProvider && model.byok && <div className="space-y-2">
+            <label htmlFor="provider-key" className="text-sm font-medium">Your {model.provider} API key</label>
+            <input id="provider-key" type="password" value={apiKey} maxLength={512}
+              onChange={(event) => setApiKey(event.target.value)} autoComplete="off" spellCheck={false}
+              className="w-full rounded-sm border border-border bg-background px-3 py-2 text-sm" />
+            <p className="text-xs text-muted-foreground">Held in server memory for this browser session. Re-enter after a server restart.</p>
+          </div>}
           <Separator />
           <ColorSelector
             value={colorPreference}
@@ -90,15 +99,17 @@ export function GameSetup({ onStart, starting = false }: GameSetupProps) {
           size="lg"
           className="w-full"
           disabled={starting}
-          onClick={() =>
+          onClick={() => {
+            const submittedKey = apiKey
+            setApiKey("")
             onStart({
               model,
               colorPreference,
               timeControl,
               difficulty,
               difficultyContext,
-            })
-          }
+            }, submittedKey || undefined)
+          }}
         >
           {starting ? "Starting…" : "Start Game"}
         </Button>

@@ -34,7 +34,7 @@ export default function Home() {
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
 
-  async function handleStart(matchConfig: MatchConfig) {
+  async function handleStart(matchConfig: MatchConfig, apiKey?: string) {
     if (starting) return
     setStarting(true)
     setStartError(null)
@@ -42,6 +42,9 @@ export default function Home() {
       const color = resolveHumanColor(matchConfig.colorPreference)
       const modelColor = color === "white" ? "black" : "white"
       const contextLevel = matchConfig.difficulty === "casual" ? "minimal" : matchConfig.difficulty === "strong" ? "structured_position" : "game_context"
+      if (matchConfig.model.backendProvider && apiKey) {
+        await gameApi.credential(matchConfig.model.backendProvider, apiKey)
+      }
       const created = await gameApi.create(matchConfig.timeControl.id, matchConfig.model.backendProvider, modelColor, contextLevel)
       const current = await gameApi.get(created.game_id)
       setConfig(matchConfig)
