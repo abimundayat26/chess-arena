@@ -22,6 +22,39 @@ export interface ServerGame {
 export interface ConfiguredProvider {
   provider: "openai" | "anthropic" | "gemini" | "openrouter"
   model: string
+  byok?: boolean
+}
+
+export interface GameAnalysis {
+  status: "complete" | "unavailable"
+  reason?: "engine_unavailable" | "engine_failed" | "game_too_long"
+  moves?: {
+    ply: number
+    san: string
+    uci: string
+    mover: PlayerColor
+    evaluation_cp: number
+    centipawn_loss: number
+    classification: "best" | "good" | "inaccuracy" | "mistake" | "blunder"
+  }[]
+  white_accuracy?: number | null
+  black_accuracy?: number | null
+}
+
+export interface GameMetrics {
+  result: string
+  model_provider: string | null
+  model_id: string | null
+  illegal_model_move_count: number
+  white_move_times_ms: number[]
+  black_move_times_ms: number[]
+  provider_attempt_count: number
+  provider_failure_count: number
+  retry_count: number
+  average_model_move_time_ms: number | null
+  median_model_move_time_ms: number | null
+  white_accuracy: number | null
+  black_accuracy: number | null
 }
 
 export class GameApiError extends Error {
@@ -64,6 +97,30 @@ async function request(
 }
 
 export const gameApi = {
+  credential: async (provider: ConfiguredProvider["provider"], apiKey: string): Promise<void> => {
+    const response = await fetch("/api/credentials", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider, api_key: apiKey }),
+      cache: "no-store",
+    })
+    if (!response.ok) throw new GameApiError("Could not use provider key", response.status)
+  },
+  metrics: async (id: string): Promise<GameMetrics> => {
+    const response = await fetch(`/api/games/${encodeURIComponent(id)}/metrics`, { cache: "no-store" })
+    if (!response.ok) throw new GameApiError("Metrics are unavailable", response.status)
+    return response.json() as Promise<GameMetrics>
+  },
+  analysis: async (id: string): Promise<GameAnalysis> => {
+    const response = await fetch(`/api/games/${encodeURIComponent(id)}/analysis`, { method: "POST", cache: "no-store" })
+    if (!response.ok) throw new GameApiError("Analysis is unavailable", response.status)
+    return response.json() as Promise<GameAnalysis>
+  },
+  pgn: async (id: string): Promise<string> => {
+    const response = await fetch(`/api/games/${encodeURIComponent(id)}/pgn`, { cache: "no-store" })
+    if (!response.ok) throw new GameApiError("Could not download PGN", response.status)
+    return response.text()
+  },
   providers: async (): Promise<ConfiguredProvider[]> => {
     const response = await fetch("/api/providers", { cache: "no-store" })
     if (!response.ok) throw new GameApiError("Could not load providers", response.status)

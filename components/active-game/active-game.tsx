@@ -26,6 +26,7 @@ interface ActiveGameProps {
   onGameOver: (
     info: GameOverInfo,
     snapshot: {
+      gameId: string
       pgn: string
       san: string[]
       fen: string
@@ -189,6 +190,7 @@ export function ActiveGame({
           "variant_draw") as TerminationReason,
       },
       {
+        gameId: state.game_id,
         pgn: state.pgn,
         san: game.sanHistory,
         fen: state.fen,

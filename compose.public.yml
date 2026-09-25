@@ -1,0 +1,40 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    environment:
+      CHESS_PUBLIC_MODE: "1"
+      CHESS_PUBLIC_ORIGIN: https://${CHESS_DOMAIN:?set CHESS_DOMAIN}
+      CHESS_OPENAI_MODEL: ${CHESS_OPENAI_MODEL:-}
+      CHESS_ANTHROPIC_MODEL: ${CHESS_ANTHROPIC_MODEL:-}
+      CHESS_GEMINI_MODEL: ${CHESS_GEMINI_MODEL:-}
+      CHESS_OPENROUTER_MODEL: ${CHESS_OPENROUTER_MODEL:-}
+    volumes:
+      - games:/data
+    restart: unless-stopped
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    depends_on:
+      - api
+    restart: unless-stopped
+  caddy:
+    image: caddy:2
+    environment:
+      CHESS_DOMAIN: ${CHESS_DOMAIN:?set CHESS_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+    restart: unless-stopped
+volumes:
+  games:
+  caddy_data:
+  caddy_config:

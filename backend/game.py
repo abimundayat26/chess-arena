@@ -1,8 +1,10 @@
 """In-memory, authoritative chess state and game operations."""
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 import json
 from math import ceil, isfinite
+from statistics import mean, median
 from threading import RLock
 from time import monotonic
 from typing import Callable
@@ -73,8 +75,19 @@ class Game:
     time_control: str = "10+5"
     model_provider: str | None = None
     model_color: str | None = None
+    model_id: str | None = None
+    owner_hash: str | None = None
+    created_date: str = field(default_factory=lambda: datetime.now(timezone.utc).strftime("%Y.%m.%d"))
     context_level: str = "minimal"
     illegal_model_move_count: int = 0
+    analysis: dict | None = None
+    provider_attempt_count: int = 0
+    provider_failure_count: int = 0
+    retry_count: int = 0
+    white_move_times_ms: list[int] = field(default_factory=list)
+    black_move_times_ms: list[int] = field(default_factory=list)
+    white_turn_baseline: float = field(init=False)
+    black_turn_baseline: float = field(init=False)
     clock_override: str | None = field(default=None, repr=False)
     clock: Callable[[], float] = field(default=monotonic, repr=False)
     on_change: Callable[["Game"], None] | None = field(default=None, repr=False)
@@ -85,6 +98,7 @@ class Game:
     def __post_init__(self) -> None:
         initial, _ = TIME_CONTROLS[self.time_control]
         self.white_seconds = self.black_seconds = float(initial)
+        self.white_turn_baseline = self.black_turn_baseline = float(initial)
         self.last_tick = self.clock()
         if self.status == "playing":
             self._finish_board_outcome()
@@ -117,6 +131,33 @@ class Game:
             headers="FEN" in pgn_game.headers, variations=False, comments=False
         ))
 
+    def export_pgn(self) -> str:
+        self._charge_time()
+        self._require_exportable()
+        record = chess.pgn.Game.from_board(self.board)
+        model_name = self.model_id or ("Demo model" if self.model_provider is None else self.model_provider)
+        # PGN tag values cannot contain line breaks. Model IDs originate in
+        # configuration, so keep a malformed value from breaking export.
+        model_name = model_name.replace("\r", " ").replace("\n", " ")
+        record.headers.update({
+            "Event": "Multi-Model Chess Arena", "Site": "Chess Arena",
+            "Date": self.created_date, "Round": "?",
+            "White": model_name if self.model_color == "white" else "Human",
+            "Black": model_name if self.model_color == "black" or self.model_provider is None else "Human",
+            "Result": self.result,
+            "TimeControl": "+".join(str(value) for value in TIME_CONTROLS[self.time_control]),
+            "Termination": self.termination_reason or "?",
+            "IllegalModelMoves": str(self.illegal_model_move_count),
+        })
+        if self.model_provider:
+            record.headers["AIProvider"] = self.model_provider
+            record.headers["AIModel"] = model_name
+        return record.accept(chess.pgn.StringExporter(headers=True, variations=False, comments=False)) + "\n"
+
+    def _require_exportable(self) -> None:
+        if self.status != "game-over":
+            raise GameOver("Game is still active")
+
     def submit_move(self, uci: str, *, charge_time: bool = True) -> None:
         if charge_time:
             self._charge_time()
@@ -128,12 +169,18 @@ class Game:
         if move not in self.board.legal_moves:
             raise IllegalMove("Illegal move")
         mover = self.board.turn
+        color = "white" if mover == chess.WHITE else "black"
+        remaining_before_increment = self.white_seconds if mover == chess.WHITE else self.black_seconds
+        baseline = self.white_turn_baseline if mover == chess.WHITE else self.black_turn_baseline
+        getattr(self, f"{color}_move_times_ms").append(round(max(0.0, baseline - remaining_before_increment) * 1000))
         self.board.push(move)
         increment = TIME_CONTROLS[self.time_control][1]
         if mover == chess.WHITE:
             self.white_seconds += increment
+            self.white_turn_baseline = self.white_seconds
         else:
             self.black_seconds += increment
+            self.black_turn_baseline = self.black_seconds
         self._finish_board_outcome()
         self._changed()
 
@@ -231,10 +278,20 @@ class GameStore:
             "termination_reason": game.termination_reason,
             "time_control": game.time_control,
             "model_provider": game.model_provider, "model_color": game.model_color,
+            "model_id": game.model_id, "created_date": game.created_date,
+            "owner_hash": game.owner_hash,
             "context_level": game.context_level,
             "illegal_model_move_count": game.illegal_model_move_count,
             "white_seconds": game.white_seconds, "black_seconds": game.black_seconds,
             "clock_override": game.clock_override,
+            "analysis": game.analysis,
+            "provider_attempt_count": game.provider_attempt_count,
+            "provider_failure_count": game.provider_failure_count,
+            "retry_count": game.retry_count,
+            "white_move_times_ms": game.white_move_times_ms,
+            "black_move_times_ms": game.black_move_times_ms,
+            "white_turn_baseline": game.white_turn_baseline,
+            "black_turn_baseline": game.black_turn_baseline,
         })
 
     def _restore_games(self) -> None:
@@ -271,8 +328,25 @@ class GameStore:
             board.push_uci(uci)
         game = Game(id=game_id, board=board, time_control=payload["time_control"],
                     model_provider=payload["model_provider"], model_color=payload["model_color"],
+                    model_id=payload.get("model_id"), created_date=payload.get("created_date", "????.??.??"),
+                    owner_hash=payload.get("owner_hash"),
                     context_level=payload["context_level"], clock=self._clock,
                     illegal_model_move_count=payload["illegal_model_move_count"])
+        game.analysis = payload.get("analysis")
+        for name in ("provider_attempt_count", "provider_failure_count", "retry_count"):
+            value = payload.get(name, 0)
+            if type(value) is not int or value < 0:
+                raise ValueError("Invalid saved metrics")
+            setattr(game, name, value)
+        for color in ("white", "black"):
+            samples = payload.get(f"{color}_move_times_ms", [])
+            baseline = payload.get(f"{color}_turn_baseline", payload[f"{color}_seconds"])
+            if not isinstance(samples, list) or any(type(item) is not int or item < 0 for item in samples):
+                raise ValueError("Invalid saved move times")
+            if type(baseline) not in (int, float) or not isfinite(baseline) or baseline < 0:
+                raise ValueError("Invalid saved baseline")
+            setattr(game, f"{color}_move_times_ms", samples)
+            setattr(game, f"{color}_turn_baseline", baseline)
         game.status = payload["status"]
         game.result = payload["result"]
         game.termination_reason = payload["termination_reason"]
@@ -292,13 +366,15 @@ class GameStore:
 
     def create(
         self, time_control: str = "10+5", model_provider: str | None = None,
-        model_color: str | None = None, context_level: str = "minimal",
+        model_color: str | None = None, context_level: str = "minimal", model_id: str | None = None,
+        owner_hash: str | None = None,
     ) -> dict:
         with self._lock:
             game = Game(
                 time_control=time_control, clock=self._clock,
                 model_provider=model_provider, model_color=model_color,
-                context_level=context_level,
+                context_level=context_level, model_id=model_id,
+                owner_hash=owner_hash,
             )
             self._games[game.id] = game
             game.on_change = self._save_game
@@ -307,6 +383,78 @@ class GameStore:
     def get(self, game_id: str) -> dict:
         with self._lock:
             return self._find(game_id).snapshot()
+
+    def owner_hash(self, game_id: str) -> str | None:
+        with self._lock:
+            return self._find(game_id).owner_hash
+
+    def active_games_for_owner(self, owner_hash: str) -> int:
+        with self._lock:
+            return sum(game.owner_hash == owner_hash and game.status == "playing" for game in self._games.values())
+
+    def provider_attempts(self, game_id: str) -> int:
+        with self._lock:
+            return self._find(game_id).provider_attempt_count
+
+    def export_pgn(self, game_id: str) -> str:
+        with self._lock:
+            return self._find(game_id).export_pgn()
+
+    def analysis_input(self, game_id: str) -> tuple[chess.Board | None, dict | None]:
+        with self._lock:
+            game = self._find(game_id)
+            game._charge_time()
+            game._require_exportable()
+            return (None if game.analysis and game.analysis.get("status") == "complete" else game.board.copy(stack=True),
+                    game.analysis)
+
+    def save_analysis(self, game_id: str, result: dict) -> dict:
+        with self._lock:
+            game = self._find(game_id)
+            game._require_exportable()
+            if game.analysis and game.analysis.get("status") == "complete":
+                return game.analysis
+            game.analysis = result
+            game._changed()
+            return result
+
+    def metrics(self, game_id: str) -> dict:
+        with self._lock:
+            game = self._find(game_id)
+            game._charge_time()
+            game._require_exportable()
+            model_samples = getattr(game, f"{game.model_color}_move_times_ms") if game.model_color else []
+            analysis = game.analysis if game.analysis and game.analysis.get("status") == "complete" else None
+            return {
+                "result": game.result, "model_provider": game.model_provider, "model_id": game.model_id,
+                "illegal_model_move_count": game.illegal_model_move_count,
+                "white_move_times_ms": game.white_move_times_ms,
+                "black_move_times_ms": game.black_move_times_ms,
+                "provider_attempt_count": game.provider_attempt_count,
+                "provider_failure_count": game.provider_failure_count,
+                "retry_count": game.retry_count,
+                "average_model_move_time_ms": round(mean(model_samples)) if model_samples else None,
+                "median_model_move_time_ms": round(median(model_samples)) if model_samples else None,
+                "white_accuracy": analysis.get("white_accuracy") if analysis else None,
+                "black_accuracy": analysis.get("black_accuracy") if analysis else None,
+            }
+
+    def record_provider_attempt(self, game_id: str, token: object, retry: bool = False) -> None:
+        with self._lock:
+            if (self._model_calls.get(game_id, (None,))[0] is not token and
+                    self._draw_calls.get(game_id, (None,))[0] is not token):
+                raise ModelTurnConflict("Provider action ended")
+            game = self._find(game_id)
+            game.provider_attempt_count += 1
+            if retry:
+                game.retry_count += 1
+            game._changed()
+
+    def record_provider_failure(self, game_id: str) -> None:
+        with self._lock:
+            game = self._find(game_id)
+            game.provider_failure_count += 1
+            game._changed()
 
     def move(self, game_id: str, uci: str) -> dict:
         with self._lock:

@@ -7,7 +7,6 @@ import { GameSetup } from "@/components/game-setup/game-setup"
 import { ActiveGame } from "@/components/active-game/active-game"
 import { GameOver } from "@/components/game-over/game-over"
 import { gameApi, type ServerGame } from "@/lib/chess/api"
-import { mockAccuracy } from "@/lib/chess/mock-data"
 import type {
   AppScreen,
   CompletedGame,
@@ -35,7 +34,7 @@ export default function Home() {
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
 
-  async function handleStart(matchConfig: MatchConfig) {
+  async function handleStart(matchConfig: MatchConfig, apiKey?: string) {
     if (starting) return
     setStarting(true)
     setStartError(null)
@@ -43,6 +42,9 @@ export default function Home() {
       const color = resolveHumanColor(matchConfig.colorPreference)
       const modelColor = color === "white" ? "black" : "white"
       const contextLevel = matchConfig.difficulty === "casual" ? "minimal" : matchConfig.difficulty === "strong" ? "structured_position" : "game_context"
+      if (matchConfig.model.backendProvider && apiKey) {
+        await gameApi.credential(matchConfig.model.backendProvider, apiKey)
+      }
       const created = await gameApi.create(matchConfig.timeControl.id, matchConfig.model.backendProvider, modelColor, contextLevel)
       const current = await gameApi.get(created.game_id)
       setConfig(matchConfig)
@@ -60,6 +62,7 @@ export default function Home() {
   function handleGameOver(
     info: GameOverInfo,
     snapshot: {
+      gameId: string
       pgn: string
       san: string[]
       fen: string
@@ -67,8 +70,8 @@ export default function Home() {
     }
   ) {
     if (!config) return
-    const { humanAccuracy, modelAccuracy } = mockAccuracy()
     setCompletedGame({
+      gameId: snapshot.gameId,
       config,
       gameOver: info,
       pgn: snapshot.pgn,
@@ -79,8 +82,6 @@ export default function Home() {
         humanClockLabel: "",
         modelClockLabel: "",
         illegalModelMoves: snapshot.illegalModelMoves,
-        humanAccuracy,
-        modelAccuracy,
       },
     })
     setScreen("game-over")

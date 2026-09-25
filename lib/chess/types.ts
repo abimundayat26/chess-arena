@@ -9,6 +9,7 @@ export interface ModelOption {
   name: string
   provider: string
   backendProvider?: "openai" | "anthropic" | "gemini" | "openrouter"
+  byok?: boolean
 }
 
 export interface TimeControlOption {
@@ -65,11 +66,10 @@ export interface MatchExtras {
   humanClockLabel: string
   modelClockLabel: string
   illegalModelMoves: number
-  humanAccuracy: number
-  modelAccuracy: number
 }
 
 export interface CompletedGame {
+  gameId: string
   config: MatchConfig
   extras: MatchExtras
   pgn: string

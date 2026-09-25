@@ -44,5 +44,15 @@ Backend endpoints are documented at `http://127.0.0.1:8000/docs`.
 | POST | `/games/{game_id}/resign` | `{"color":"white"}` or `{"color":"black"}` |
 | POST | `/games/{game_id}/model-turn` | none |
 | POST | `/games/{game_id}/draw-offer` | `{}` for bound games; `{"accepted":true}` or `{"accepted":false}` for demo games |
+| GET | `/games/{game_id}/pgn` | none; completed games only |
+| POST | `/games/{game_id}/analysis` | none; completed games only |
+| GET | `/games/{game_id}/metrics` | none; completed games only |
+| POST | `/credentials` | `{"provider":"openai","api_key":"..."}` in public mode only |
 
-Restarting the backend recovers saved games and charges elapsed wall time to the active clock. Post-game engine analysis is not included.
+Restarting the backend recovers saved games and charges elapsed wall time to the active clock. Completed games can be exported as PGN and analyzed with Stockfish when the executable is available. Public-mode game endpoints require the creator's session cookie.
+
+## Public deployment preparation
+
+The opt-in public stack is in `compose.public.yml`. Copy `.env.public.example` to `.env`, set a real `CHESS_DOMAIN` and only the model IDs you approve, and point DNS at the host. Once deployment is approved, `docker compose -f compose.public.yml up --build -d` builds the API with Stockfish, the Next.js frontend, and a Caddy HTTPS proxy. The API runs one worker and stores SQLite in the `games` volume. Back up that volume before upgrades. Do not set provider API keys in the deployment environment: visitors enter only their selected provider key in setup. Keys stay in API process memory and are lost on restart; the HTTP-only session cookie binds access to games across restarts. A lost cookie means a saved game is inaccessible to that visitor. Keep the deployment behind HTTPS so the Secure cookie is sent.
+
+Public mode limits request bodies to 8 KiB, active games to four per session, and provider attempts to 200 per game. Configure domain/origin together; a cross-origin mutation is rejected. The compose file is deployment configuration only and has not been published or connected to a paid provider account.

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test"
 
-async function routeFakeProvider(page: Page, terminalOnTurn = false) {
+async function routeFakeProvider(page: Page, terminalOnTurn = false, byok = false) {
   let gameId = ""
   let modelTurns = 0
   const drawBodies: string[] = []
@@ -11,7 +11,8 @@ async function routeFakeProvider(page: Page, terminalOnTurn = false) {
     context_level: "game_context",
     illegal_model_move_count: 2,
   })
-  await page.route("**/api/providers", (route) => route.fulfill({ json: [{ provider: "openai", model: "Test model" }] }))
+  await page.route("**/api/providers", (route) => route.fulfill({ json: [{ provider: "openai", model: "Test model", ...(byok ? { byok: true } : {}) }] }))
+  if (byok) await page.route("**/api/credentials", (route) => route.fulfill({ status: 204, body: "" }))
   await page.route("**/api/games**", async (route) => {
     const url = route.request().url()
     const method = route.request().method()
@@ -44,6 +45,14 @@ async function routeFakeProvider(page: Page, terminalOnTurn = false) {
       drawBodies.push(route.request().postData() ?? "")
       const response = await page.request.post(`/api/games/${gameId}/draw-offer`, { data: { accepted: true } })
       await route.fulfill({ json: decorate(await response.json()) })
+      return
+    }
+    if (url.endsWith("/analysis")) {
+      await route.fulfill({ json: { status: "unavailable", reason: "engine_unavailable" } })
+      return
+    }
+    if (url.endsWith("/metrics")) {
+      await route.fulfill({ json: { provider_attempt_count: 2, provider_failure_count: 1, retry_count: 0, average_model_move_time_ms: null, median_model_move_time_ms: null } })
       return
     }
     const response = await route.fetch()
@@ -81,4 +90,32 @@ test("configured model timeout opens Game Over", async ({ page }) => {
   await startModelGame(page)
   await expect(page.getByText("Timeout")).toBeVisible()
   await expect(page.getByRole("button", { name: "Resign" })).toHaveCount(0)
+})
+
+test("BYOK setup submits only the selected key and clears the input", async ({ page }) => {
+  const key = "sk-fake-browser-only"
+  let credentialBody = ""
+  let creationBody = ""
+  await routeFakeProvider(page, false, true)
+  await page.route("**/api/credentials", async (route) => {
+    credentialBody = route.request().postData() ?? ""
+    await route.fulfill({ status: 204, body: "" })
+  })
+  await page.goto("/")
+  await page.getByRole("button", { name: /Test model/ }).click()
+  await page.getByLabel("Your Openai API key").fill(key)
+  page.on("request", (request) => {
+    if (request.url().endsWith("/api/games") && request.method() === "POST") creationBody = request.postData() ?? ""
+  })
+  await page.getByRole("button", { name: "Start Game" }).click()
+  await expect(page.getByRole("button", { name: /^e2 white p$/ })).toBeVisible()
+  expect(JSON.parse(credentialBody)).toEqual({ provider: "openai", api_key: key })
+  expect(creationBody).not.toContain(key)
+  expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain(key)
+  expect(await page.evaluate(() => JSON.stringify(sessionStorage))).not.toContain(key)
+  await page.getByRole("button", { name: "Resign" }).click()
+  await page.getByRole("alertdialog").getByRole("button", { name: "Resign" }).click()
+  await page.getByRole("button", { name: "New setup" }).click()
+  await page.getByRole("button", { name: /Test model/ }).click()
+  await expect(page.getByLabel("Your Openai API key")).toHaveValue("")
 })

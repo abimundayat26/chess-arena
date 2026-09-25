@@ -13,7 +13,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               multi-model chess study
             </span>
           </div>
-          <span className="text-xs text-muted-foreground">Local preview</span>
+          <span className="text-xs text-muted-foreground">Play & review</span>
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">{children}</main>

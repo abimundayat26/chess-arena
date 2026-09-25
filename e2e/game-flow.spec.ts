@@ -95,10 +95,14 @@ test("setup, local rejection, backend move, resignation, and new setup", async (
     .getByRole("button", { name: "Resign" })
     .click()
   await expect(page.getByText("Resignation")).toBeVisible()
+  await expect(page.getByText("Stockfish analysis unavailable.")).toBeVisible()
   const final = await (await page.request.get(`/api/games/${gameId}`)).json()
   await authoritativeState(page, gameId)
   expect(final.game_status).toBe("game-over")
   expect(final.termination_reason).toBe("resignation")
+  const download = page.waitForEvent("download")
+  await page.getByRole("button", { name: "Download PGN" }).click()
+  expect((await download).suggestedFilename()).toMatch(/\.pgn$/)
   for (const [path, body] of [
     ["moves", { uci: "e7e5" }],
     ["resign", { color: "white" }],
