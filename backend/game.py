@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
 from math import ceil, isfinite
+from statistics import mean, median
 from threading import RLock
 from time import monotonic
 from typing import Callable
@@ -79,6 +80,13 @@ class Game:
     context_level: str = "minimal"
     illegal_model_move_count: int = 0
     analysis: dict | None = None
+    provider_attempt_count: int = 0
+    provider_failure_count: int = 0
+    retry_count: int = 0
+    white_move_times_ms: list[int] = field(default_factory=list)
+    black_move_times_ms: list[int] = field(default_factory=list)
+    white_turn_baseline: float = field(init=False)
+    black_turn_baseline: float = field(init=False)
     clock_override: str | None = field(default=None, repr=False)
     clock: Callable[[], float] = field(default=monotonic, repr=False)
     on_change: Callable[["Game"], None] | None = field(default=None, repr=False)
@@ -89,6 +97,7 @@ class Game:
     def __post_init__(self) -> None:
         initial, _ = TIME_CONTROLS[self.time_control]
         self.white_seconds = self.black_seconds = float(initial)
+        self.white_turn_baseline = self.black_turn_baseline = float(initial)
         self.last_tick = self.clock()
         if self.status == "playing":
             self._finish_board_outcome()
@@ -159,12 +168,18 @@ class Game:
         if move not in self.board.legal_moves:
             raise IllegalMove("Illegal move")
         mover = self.board.turn
+        color = "white" if mover == chess.WHITE else "black"
+        remaining_before_increment = self.white_seconds if mover == chess.WHITE else self.black_seconds
+        baseline = self.white_turn_baseline if mover == chess.WHITE else self.black_turn_baseline
+        getattr(self, f"{color}_move_times_ms").append(round(max(0.0, baseline - remaining_before_increment) * 1000))
         self.board.push(move)
         increment = TIME_CONTROLS[self.time_control][1]
         if mover == chess.WHITE:
             self.white_seconds += increment
+            self.white_turn_baseline = self.white_seconds
         else:
             self.black_seconds += increment
+            self.black_turn_baseline = self.black_seconds
         self._finish_board_outcome()
         self._changed()
 
@@ -268,6 +283,13 @@ class GameStore:
             "white_seconds": game.white_seconds, "black_seconds": game.black_seconds,
             "clock_override": game.clock_override,
             "analysis": game.analysis,
+            "provider_attempt_count": game.provider_attempt_count,
+            "provider_failure_count": game.provider_failure_count,
+            "retry_count": game.retry_count,
+            "white_move_times_ms": game.white_move_times_ms,
+            "black_move_times_ms": game.black_move_times_ms,
+            "white_turn_baseline": game.white_turn_baseline,
+            "black_turn_baseline": game.black_turn_baseline,
         })
 
     def _restore_games(self) -> None:
@@ -308,6 +330,20 @@ class GameStore:
                     context_level=payload["context_level"], clock=self._clock,
                     illegal_model_move_count=payload["illegal_model_move_count"])
         game.analysis = payload.get("analysis")
+        for name in ("provider_attempt_count", "provider_failure_count", "retry_count"):
+            value = payload.get(name, 0)
+            if type(value) is not int or value < 0:
+                raise ValueError("Invalid saved metrics")
+            setattr(game, name, value)
+        for color in ("white", "black"):
+            samples = payload.get(f"{color}_move_times_ms", [])
+            baseline = payload.get(f"{color}_turn_baseline", payload[f"{color}_seconds"])
+            if not isinstance(samples, list) or any(type(item) is not int or item < 0 for item in samples):
+                raise ValueError("Invalid saved move times")
+            if type(baseline) not in (int, float) or not isfinite(baseline) or baseline < 0:
+                raise ValueError("Invalid saved baseline")
+            setattr(game, f"{color}_move_times_ms", samples)
+            setattr(game, f"{color}_turn_baseline", baseline)
         game.status = payload["status"]
         game.result = payload["result"]
         game.termination_reason = payload["termination_reason"]
@@ -364,6 +400,44 @@ class GameStore:
             game.analysis = result
             game._changed()
             return result
+
+    def metrics(self, game_id: str) -> dict:
+        with self._lock:
+            game = self._find(game_id)
+            game._charge_time()
+            game._require_exportable()
+            model_samples = getattr(game, f"{game.model_color}_move_times_ms") if game.model_color else []
+            analysis = game.analysis if game.analysis and game.analysis.get("status") == "complete" else None
+            return {
+                "result": game.result, "model_provider": game.model_provider, "model_id": game.model_id,
+                "illegal_model_move_count": game.illegal_model_move_count,
+                "white_move_times_ms": game.white_move_times_ms,
+                "black_move_times_ms": game.black_move_times_ms,
+                "provider_attempt_count": game.provider_attempt_count,
+                "provider_failure_count": game.provider_failure_count,
+                "retry_count": game.retry_count,
+                "average_model_move_time_ms": round(mean(model_samples)) if model_samples else None,
+                "median_model_move_time_ms": round(median(model_samples)) if model_samples else None,
+                "white_accuracy": analysis.get("white_accuracy") if analysis else None,
+                "black_accuracy": analysis.get("black_accuracy") if analysis else None,
+            }
+
+    def record_provider_attempt(self, game_id: str, token: object, retry: bool = False) -> None:
+        with self._lock:
+            if (self._model_calls.get(game_id, (None,))[0] is not token and
+                    self._draw_calls.get(game_id, (None,))[0] is not token):
+                raise ModelTurnConflict("Provider action ended")
+            game = self._find(game_id)
+            game.provider_attempt_count += 1
+            if retry:
+                game.retry_count += 1
+            game._changed()
+
+    def record_provider_failure(self, game_id: str) -> None:
+        with self._lock:
+            game = self._find(game_id)
+            game.provider_failure_count += 1
+            game._changed()
 
     def move(self, game_id: str, uci: str) -> dict:
         with self._lock:

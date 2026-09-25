@@ -119,6 +119,15 @@ def create_app(
                 result = unavailable("engine_failed")
             return games.save_analysis(game_id, result)
 
+    @app.get("/games/{game_id}/metrics")
+    async def game_metrics(game_id: str):
+        try:
+            return games.metrics(game_id)
+        except GameNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except GameOver as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     @app.post("/games/{game_id}/model-turn", response_model=GameState)
     async def model_turn(game_id: str):
         try:
@@ -127,11 +136,15 @@ def create_app(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except (GameOver, ModelTurnConflict) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        failure_recorded = False
         try:
+            attempt_index = 0
             while True:
                 remaining = games.remaining_model_budget(game_id, token)
                 if remaining <= 0:
                     return games.finish_model_turn(game_id, None, token)
+                games.record_provider_attempt(game_id, token, retry=attempt_index > 0)
+                attempt_index += 1
                 provider_task = asyncio.create_task(available[provider_name].adapter.choose_move(position))
                 try:
                     done, pending = await asyncio.wait({provider_task}, timeout=remaining)
@@ -145,11 +158,15 @@ def create_app(
                     try:
                         uci = provider_task.result()
                     except (Exception, asyncio.CancelledError):
+                        games.record_provider_failure(game_id)
+                        failure_recorded = True
                         return games.finish_model_turn(game_id, None, token)
                 except asyncio.CancelledError:
                     provider_task.cancel()
                     raise
                 if not isinstance(uci, str):
+                    games.record_provider_failure(game_id)
+                    failure_recorded = True
                     return games.finish_model_turn(game_id, None, token)
                 result = games.model_attempt(game_id, uci, token)
                 if result is not None:
@@ -162,6 +179,8 @@ def create_app(
             games.abort_model_turn(game_id, token)
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except IllegalMove:
+            if not failure_recorded:
+                games.record_provider_failure(game_id)
             raise HTTPException(status_code=502, detail="Model turn failed") from None
 
     @app.get("/games/{game_id}", response_model=GameState)
@@ -210,6 +229,7 @@ def create_app(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except (GameOver, ModelTurnConflict) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        games.record_provider_attempt(game_id, token)
         provider_task = asyncio.create_task(available[provider_name].adapter.choose_draw(position))
         try:
             done, pending = await asyncio.wait({provider_task}, timeout=budget)
@@ -229,10 +249,14 @@ def create_app(
             games.abort_draw_decision(game_id, token)
             raise
         try:
+            if decision is None:
+                games.record_provider_failure(game_id)
             return games.finish_draw_decision(game_id, decision, token)
         except ModelTurnConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except IllegalMove:
+            if decision is not None:
+                games.record_provider_failure(game_id)
             raise HTTPException(status_code=502, detail="Model draw decision failed") from None
 
     return app

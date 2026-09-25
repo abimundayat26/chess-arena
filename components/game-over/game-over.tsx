@@ -7,7 +7,7 @@ import { GameSummary } from "@/components/game-over/game-summary"
 import { AccuracyBar } from "@/components/game-over/accuracy-bar"
 import { MoveReview } from "@/components/game-over/move-review"
 import type { CompletedGame } from "@/lib/chess/types"
-import { gameApi, type GameAnalysis } from "@/lib/chess/api"
+import { gameApi, type GameAnalysis, type GameMetrics } from "@/lib/chess/api"
 import { useEffect, useState } from "react"
 import { DownloadIcon, RotateCcwIcon, SettingsIcon } from "lucide-react"
 
@@ -40,6 +40,7 @@ export function GameOver({
 }: GameOverProps) {
   const [downloadError, setDownloadError] = useState(false)
   const [analysis, setAnalysis] = useState<GameAnalysis | null>(null)
+  const [metrics, setMetrics] = useState<GameMetrics | null>(null)
   useEffect(() => {
     let mounted = true
     void gameApi.analysis(game.gameId).then((value) => {
@@ -49,6 +50,13 @@ export function GameOver({
     })
     return () => { mounted = false }
   }, [game.gameId])
+  useEffect(() => {
+    let mounted = true
+    void gameApi.metrics(game.gameId).then((value) => {
+      if (mounted) setMetrics(value)
+    }).catch(() => {})
+    return () => { mounted = false }
+  }, [game.gameId, analysis])
   async function handleDownload() {
     try {
       setDownloadError(false)
@@ -63,6 +71,16 @@ export function GameOver({
         <CardContent className="flex flex-col gap-6 pt-2">
           <GameResult game={game} />
           <GameSummary game={game} />
+          {metrics && <div className="rounded-sm border border-border bg-card p-4 text-sm">
+            <h3 className="mb-3 font-heading font-semibold">Measured performance</h3>
+            <dl className="grid grid-cols-2 gap-2">
+              <dt>Provider attempts</dt><dd className="text-right">{metrics.provider_attempt_count}</dd>
+              <dt>Provider failures</dt><dd className="text-right">{metrics.provider_failure_count}</dd>
+              <dt>Illegal move retries</dt><dd className="text-right">{metrics.retry_count}</dd>
+              <dt>Average model move time</dt><dd className="text-right">{metrics.average_model_move_time_ms == null ? "Unavailable" : `${(metrics.average_model_move_time_ms / 1000).toFixed(1)}s`}</dd>
+              <dt>Median model move time</dt><dd className="text-right">{metrics.median_model_move_time_ms == null ? "Unavailable" : `${(metrics.median_model_move_time_ms / 1000).toFixed(1)}s`}</dd>
+            </dl>
+          </div>}
           {analysis?.status === "complete" && (
             <>
               <AccuracyBar game={game} analysis={analysis} />

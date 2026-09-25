@@ -40,6 +40,22 @@ export interface GameAnalysis {
   black_accuracy?: number | null
 }
 
+export interface GameMetrics {
+  result: string
+  model_provider: string | null
+  model_id: string | null
+  illegal_model_move_count: number
+  white_move_times_ms: number[]
+  black_move_times_ms: number[]
+  provider_attempt_count: number
+  provider_failure_count: number
+  retry_count: number
+  average_model_move_time_ms: number | null
+  median_model_move_time_ms: number | null
+  white_accuracy: number | null
+  black_accuracy: number | null
+}
+
 export class GameApiError extends Error {
   constructor(
     message: string,
@@ -80,6 +96,11 @@ async function request(
 }
 
 export const gameApi = {
+  metrics: async (id: string): Promise<GameMetrics> => {
+    const response = await fetch(`/api/games/${encodeURIComponent(id)}/metrics`, { cache: "no-store" })
+    if (!response.ok) throw new GameApiError("Metrics are unavailable", response.status)
+    return response.json() as Promise<GameMetrics>
+  },
   analysis: async (id: string): Promise<GameAnalysis> => {
     const response = await fetch(`/api/games/${encodeURIComponent(id)}/analysis`, { method: "POST", cache: "no-store" })
     if (!response.ok) throw new GameApiError("Analysis is unavailable", response.status)
