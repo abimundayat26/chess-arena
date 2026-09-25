@@ -79,3 +79,29 @@ def test_classification_and_accuracy_use_evaluations(monkeypatch):
     assert [row["centipawn_loss"] for row in result["moves"]] == [20, 30]
     assert result["white_accuracy"] == 96.0
     assert result["black_accuracy"] == 94.0
+
+
+def test_engine_failure_after_start_is_not_reported_as_missing(monkeypatch):
+    class FailingEngine:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def analyse(self, board, limit):
+            raise chess.engine.EngineError("analysis failed")
+
+    import chess
+    monkeypatch.setattr(analysis.chess.engine.SimpleEngine, "popen_uci", lambda *args, **kwargs: FailingEngine())
+    assert analysis.run_analysis(chess.Board(), "fake") == {"status": "unavailable", "reason": "engine_failed"}
+
+
+def test_too_long_game_skips_engine_process(monkeypatch):
+    import chess
+    board = chess.Board()
+    for _ in range(41):
+        for uci in ("g1f3", "g8f6", "f3g1", "f6g8"):
+            board.push_uci(uci)
+    monkeypatch.setattr(analysis.chess.engine.SimpleEngine, "popen_uci", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("started")))
+    assert analysis.run_analysis(board, "fake") == {"status": "unavailable", "reason": "game_too_long"}

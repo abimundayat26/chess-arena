@@ -48,7 +48,7 @@ def run_analysis(board: chess.Board, executable: str) -> dict:
             return {"status": "complete", "moves": rows,
                     "white_accuracy": round(sum(accuracy["white"]) / len(accuracy["white"]), 1) if accuracy["white"] else None,
                     "black_accuracy": round(sum(accuracy["black"]) / len(accuracy["black"]), 1) if accuracy["black"] else None}
-    except (OSError, chess.engine.EngineError, chess.engine.EngineTerminatedError):
+    except OSError:
         return unavailable("engine_unavailable")
     except (TimeoutError, KeyError, TypeError, ValueError, chess.engine.EngineError):
         return unavailable("engine_failed")
