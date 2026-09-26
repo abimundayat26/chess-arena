@@ -15,9 +15,18 @@ const PIECES: Record<PieceSymbol, string> = {
   k: "♚",
 }
 
-export function ChessPieceIcon({ type, color, className }: ChessPieceIconProps) {
+export function ChessPieceIcon({
+  type,
+  color,
+  className,
+}: ChessPieceIconProps) {
   return (
-    <svg viewBox="0 0 45 45" className={className} aria-hidden focusable="false">
+    <svg
+      viewBox="0 0 45 45"
+      className={className}
+      aria-hidden
+      focusable="false"
+    >
       <text
         x="22.5"
         y="23"
@@ -26,8 +35,10 @@ export function ChessPieceIcon({ type, color, className }: ChessPieceIconProps) 
         fontFamily='"DejaVu Sans", "Segoe UI Symbol", "Apple Symbols", sans-serif'
         fontSize="39"
         fill={color === "w" ? "oklch(0.97 0.012 75)" : "oklch(0.22 0.02 50)"}
-        stroke={color === "w" ? "oklch(0.32 0.02 50)" : "oklch(0.15 0.012 50)"}
-        strokeWidth="0.6"
+        stroke={
+          color === "w" ? "oklch(0.32 0.02 50)" : "var(--piece-black-stroke)"
+        }
+        strokeWidth={color === "w" ? "0.8" : "1.2"}
         paintOrder="stroke"
       >
         {PIECES[type]}
