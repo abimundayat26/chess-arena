@@ -210,9 +210,21 @@ test("black player can drag a move after the mocked opponent moves through the A
   const before = await (await page.request.get(`/api/games/${gameId}`)).json()
   await authoritativeState(page, gameId)
   expect(before.pgn).not.toBe("*")
+  await page.evaluate(() => {
+    window.addEventListener("dragstart", (event) => {
+      document.body.dataset.dragEffectAllowed = event.dataTransfer?.effectAllowed
+    })
+    window.addEventListener("dragover", (event) => {
+      if ((event.target as HTMLElement).closest('button[aria-label="f6"]')) {
+        document.body.dataset.dragDropEffect = event.dataTransfer?.dropEffect
+      }
+    })
+  })
   await page
     .locator('button[aria-label="g8 black n"] [draggable="true"]')
     .dragTo(page.getByRole("button", { name: /^f6$/ }))
+  expect(await page.locator("body").getAttribute("data-drag-effect-allowed")).toBe("move")
+  expect(await page.locator("body").getAttribute("data-drag-drop-effect")).toBe("move")
   await expect
     .poll(
       async () =>

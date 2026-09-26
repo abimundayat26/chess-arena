@@ -146,7 +146,10 @@ export function ChessBoard({
                   key={square}
                   type="button"
                   onClick={() => handleSquareClick(square)}
-                  onDragOver={(event) => event.preventDefault()}
+                  onDragOver={(event) => {
+                    event.preventDefault()
+                    event.dataTransfer.dropEffect = legalTargets.has(square) ? "move" : "none"
+                  }}
                   onDrop={(event) => {
                     event.preventDefault()
                     handleDrop(square)
@@ -179,7 +182,10 @@ export function ChessBoard({
                   {piece && (
                     <div
                       draggable={!disabled}
-                      onDragStart={() => handleDragStart(square)}
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = "move"
+                        handleDragStart(square)
+                      }}
                       className={cn(
                         "relative z-10 flex size-[86%] items-center justify-center",
                         !disabled && "cursor-grab active:cursor-grabbing"
