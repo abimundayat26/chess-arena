@@ -37,7 +37,7 @@ npm run dev
 
 Then open http://localhost:3000. The frontend proxies `/api/*` to the backend on port 8000.
 
-To play a real model, set its key and model ID before starting the backend, e.g. `CHESS_OPENAI_API_KEY` and `CHESS_OPENAI_MODEL`. The other providers follow the same `CHESS_<PROVIDER>_API_KEY` / `CHESS_<PROVIDER>_MODEL` pattern. Keys stay on the server and are never sent to the browser. Post-game analysis needs a Stockfish binary on your PATH.
+To play a real model, set its key and model ID before starting the backend, e.g. `CHESS_OPENAI_API_KEY` and `CHESS_OPENAI_MODEL`. The other providers follow the same `CHESS_<PROVIDER>_API_KEY` / `CHESS_<PROVIDER>_MODEL` pattern. Keys stay on the server and are never sent to the browser. Post-game analysis needs a Stockfish binary on your PATH, or set `CHESS_STOCKFISH_PATH` to point at one.
 
 ## Tests
 
