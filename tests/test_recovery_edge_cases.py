@@ -1,4 +1,4 @@
-"""Independent adversarial checks for reviewed model play and recovery."""
+"""Model play and recovery edge cases."""
 
 import json
 import sqlite3

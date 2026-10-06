@@ -51,7 +51,7 @@ export function DifficultySelector({
       {value === "custom" && !realModel && (
         <div className="mt-4 rounded-sm border border-dashed border-border bg-muted/40 p-4">
           <p className="mb-3 text-xs text-muted-foreground">
-            Visual mock controls only — not connected to a model in Phase 1.
+            Custom settings aren&apos;t available yet.
           </p>
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between gap-4">

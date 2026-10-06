@@ -1,4 +1,4 @@
-"""Adversarial Phase 4 checks using only fake models and intercepted HTTP."""
+"""Provider adapter checks using only fake models and intercepted HTTP."""
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
